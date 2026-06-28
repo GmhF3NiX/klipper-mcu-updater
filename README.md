@@ -225,6 +225,15 @@ cd klipper-mcu-updater
 bash install.sh
 ```
 
+## Uninstall
+
+```bash
+rm -rf ~/klipper-mcu-updater
+rm -f ~/printer_data/config/mcu_updater.cfg
+sed -i '/include mcu_updater/d' ~/printer_data/config/printer.cfg
+```
+Then restart Klipper.
+
 Or one-liner:
 ```bash
 curl -s https://raw.githubusercontent.com/GmhF3NiX/klipper-mcu-updater/main/install.sh | bash
