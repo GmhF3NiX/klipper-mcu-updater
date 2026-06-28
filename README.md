@@ -5,6 +5,77 @@ Universal firmware update tool for Klipper 3D printers. Automatically detects MC
 > **DISCLAIMER: USE AT YOUR OWN RISK!**
 > This tool flashes firmware to your 3D printer MCUs. Incorrect firmware can render your printer inoperable. The author assumes **NO responsibility** for any damage to hardware, software, or any other losses resulting from the use of this tool. By installing and using this tool, you acknowledge that you understand the risks involved and accept full responsibility.
 
+## Scan Output Example
+
+```
+=== Scanning for Klipper MCUs ===
+
+[1/4] Parsing printer configuration...
+  Found MCU 'mcu' (can)
+  Found MCU 'rpi' (linux)
+  Found MCU 'EBB' (can)
+  Found MCU 'cartographer' (can)
+  Found Cartographer/Scanner 'cartographer' (linked to [mcu cartographer])
+[2/4] Scanning CAN bus...
+[3/4] Scanning USB devices...
+  USB: Bus 001 Device 004: ID 1d50:606f OpenMoko, Inc. Geschwister Schneider CAN adapter
+[4/4] Reading Klipper log for MCU details...
+  Querying Moonraker for live MCU versions...
+  mcu: v0.13.0-700-gd6ea62542
+  rpi: v0.13.0-700-gd6ea62542
+  EBB: v0.13.0-700-gd6ea62542
+  cartographer: CARTOGRAPHER 5.1.0
+
+============================================================
+ Detected MCUs
+============================================================
+
+  [mcu]
+    MCU Type:        stm32f429xx
+    Connection:      can
+    CAN UUID:        f622be57a636
+    CAN Bridge:      Yes
+    CAN Pins:        PD0_PD1
+    CAN Speed:       1000000
+    FW Version:      v0.13.0-700-gd6ea62542
+    Klipper Host:    v0.13.0-700-gd6ea62542
+    Katapult:        INSTALLED
+    Status:          UP TO DATE
+
+  [rpi]
+    MCU Type:        linux
+    Connection:      linux
+    Serial:          /tmp/klipper_host_mcu
+    CAN Speed:       1000000
+    FW Version:      v0.13.0-700-gd6ea62542
+    Klipper Host:    v0.13.0-700-gd6ea62542
+    Katapult:        Not needed (Linux)
+    Status:          UP TO DATE
+
+  [EBB]
+    MCU Type:        stm32g0b1xx
+    Connection:      can
+    CAN UUID:        1d9bcd48ca42
+    CAN Pins:        PB12_PB13
+    CAN Speed:       1000000
+    FW Version:      v0.13.0-700-gd6ea62542
+    Klipper Host:    v0.13.0-700-gd6ea62542
+    Katapult:        INSTALLED
+    Status:          UP TO DATE
+
+  [cartographer]
+    MCU Type:        cartographer
+    Connection:      can
+    CAN UUID:        4a9bf65fd881
+    CAN Speed:       1000000
+    FW Version:      CARTOGRAPHER 5.1.0
+    Klipper Host:    v0.13.0-700-gd6ea62542
+    Katapult:        INSTALLED
+    Status:          NEEDS UPDATE
+
+============================================================
+```
+
 ## Features
 
 - **Auto-Detection** - Scans CAN bus, USB devices, and Klipper config to find all MCUs
@@ -108,11 +179,12 @@ klipper-mcu-updater/
 
 Pull requests welcome! Areas that need work:
 
+- [x] Automatic Katapult detection per MCU
+- [x] Cartographer/Scanner probe support
 - [ ] RP2040 support (USB boot mode)
 - [ ] Cartographer firmware auto-download
 - [ ] Interactive mode with menus
 - [ ] Moonraker component integration
-- [ ] Automatic Katapult detection per MCU
 - [ ] DFU fallback when Katapult is not available
 
 ## License
