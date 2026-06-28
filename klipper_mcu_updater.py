@@ -1232,14 +1232,26 @@ class KlipperMCUUpdater:
         flash_script = KATAPULT_DIR / "scripts" / "flash_can.py"
         firmware = KLIPPER_DIR / "out" / "klipper.bin"
 
+        # Try Katapult first
         cmd = f"python3 {flash_script} -d {mcu.serial_path} -f {firmware}"
         result = run_cmd(cmd, timeout=120)
 
         if "Programming Complete" in (result.stdout or ""):
-            cprint(f"  {mcu.name} flashed via USB", "green")
+            cprint(f"  {mcu.name} flashed via USB (Katapult)", "green")
             return True
 
-        cprint(f"  Flash failed", "red")
+        # Fallback: use make flash (works without Katapult via STM32 DFU reboot)
+        cprint(f"  Katapult flash failed, trying make flash...", "yellow")
+        result = run_cmd(
+            f"cd {KLIPPER_DIR} && make flash FLASH_DEVICE={mcu.serial_path} 2>&1",
+            timeout=120
+        )
+
+        if result.returncode == 0 and "error" not in (result.stdout or "").lower():
+            cprint(f"  {mcu.name} flashed via USB (make flash)", "green")
+            return True
+
+        cprint(f"  Flash failed: {(result.stdout or '')[-200:]}", "red")
         return False
 
     # ========== UPDATE WORKFLOW ==========
