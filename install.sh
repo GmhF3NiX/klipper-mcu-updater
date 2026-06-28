@@ -68,6 +68,20 @@ fi
 echo "  Printer data: OK"
 echo ""
 
+# Create safety backup before any changes
+echo "============================================"
+echo "  Creating Safety Backup"
+echo "============================================"
+echo ""
+echo "  Backing up current config before installation..."
+BACKUP_DIR="$HOME/printer_data/config_backups/pre_install_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+cp -r "$HOME/printer_data/config/"*.cfg "$BACKUP_DIR/" 2>/dev/null
+echo "  Backup saved to: $BACKUP_DIR"
+echo "  If anything goes wrong, restore with:"
+echo "    cp $BACKUP_DIR/*.cfg ~/printer_data/config/"
+echo ""
+
 # Ask about Mainsail macro buttons
 echo "============================================"
 echo "  Mainsail Integration"
