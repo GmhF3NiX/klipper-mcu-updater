@@ -76,6 +76,89 @@ Universal firmware update tool for Klipper 3D printers. Automatically detects MC
 ============================================================
 ```
 
+## Installation Example
+
+```
+============================================
+ Klipper MCU Updater - Installer
+ by GmhF3NiX
+============================================
+
+============================================
+              DISCLAIMER
+============================================
+
+ This tool flashes firmware to your 3D
+ printer MCUs. Incorrect firmware can
+ render your printer inoperable.
+
+ USE AT YOUR OWN RISK!
+
+ The author assumes NO responsibility
+ for any damage to hardware, software,
+ or any other losses resulting from the
+ use of this tool.
+
+ By continuing, you acknowledge that:
+  - You understand the risks involved
+  - You accept full responsibility
+  - Katapult bootloader must be installed
+    on all target MCUs
+  - You will NOT run this during a print
+
+============================================
+
+Do you accept these terms and want to continue? (yes/no): yes
+
+Checking prerequisites...
+  Klipper: OK
+  Katapult: OK
+  Printer data: OK
+
+============================================
+  Mainsail Integration
+============================================
+
+Would you like to install Mainsail macro
+buttons for one-click updates from the
+web interface?
+
+This will:
+  - Install gcode_shell_command extension
+  - Create mcu_updater.cfg with macros
+  - You need to add [include mcu_updater.cfg]
+    to your printer.cfg
+
+Install Mainsail macros? (yes/no): yes
+
+  gcode_shell_command already installed
+Main script copied
+Mainsail macros created: ~/printer_data/config/mcu_updater.cfg
+
+============================================
+ Installation complete!
+============================================
+
+ Files installed to: /home/pi/klipper-mcu-updater
+
+ CLI usage:
+   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py scan
+   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update
+   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update --target EBB
+   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py backup
+
+ Mainsail setup:
+   1. Add to printer.cfg:  [include mcu_updater.cfg]
+   2. Restart Klipper
+   3. Macro buttons: MCU_SCAN / MCU_UPDATE_ALL / MCU_BACKUP
+
+ REMINDER: Use at your own risk!
+ The author assumes no responsibility for
+ any damage to hardware or software.
+
+============================================
+```
+
 ## Features
 
 - **Auto-Detection** - Scans CAN bus, USB devices, and Klipper config to find all MCUs
