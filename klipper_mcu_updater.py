@@ -414,9 +414,6 @@ class KlipperMCUUpdater:
         # Query Moonraker for live MCU versions
         self._query_moonraker_versions()
 
-            if mcu.mcu_type:
-                cprint(f"  {mcu.name}: {mcu.mcu_type} (fw: {mcu.firmware_version or 'unknown'})", "green")
-
     def _query_moonraker_versions(self):
         cprint("  Querying Moonraker for live MCU versions...", "cyan")
         try:
