@@ -196,6 +196,25 @@ else
     echo "Mainsail macros skipped"
 fi
 
+# Add Moonraker Update Manager entry
+MOONRAKER_CONF="$HOME/printer_data/config/moonraker.conf"
+if [ -f "$MOONRAKER_CONF" ]; then
+    if ! grep -q "klipper-mcu-updater" "$MOONRAKER_CONF" 2>/dev/null; then
+        cat >> "$MOONRAKER_CONF" << MOONRAKER
+
+[update_manager klipper-mcu-updater]
+type: git_repo
+path: ${INSTALL_DIR}
+origin: https://github.com/GmhF3NiX/klipper-mcu-updater.git
+primary_branch: main
+managed_services: klipper
+MOONRAKER
+        echo "  Moonraker Update Manager entry added"
+    else
+        echo "  Moonraker Update Manager entry already exists"
+    fi
+fi
+
 echo ""
 echo "============================================"
 echo " Installation complete!"
