@@ -191,16 +191,28 @@ Mainsail macros created: ~/printer_data/config/mcu_updater.cfg
 - Python 3.7+
 - Supported MCU architectures: STM32, RP2040, Linux (RPi)
 
-## Supported Boards
+## Supported Hardware
 
 Any board running Klipper with Katapult bootloader, including:
 
 | Category | Boards |
 |---|---|
-| Mainboards | BTT Octopus, Octopus Pro, Spider, Manta, SKR |
+| Mainboards | BTT Octopus, Octopus Pro, Spider, Manta, SKR, Mellow Fly |
 | Toolheads | BTT EBB36/42, SHT36/42, Mellow Fly SB2040 |
-| Probes | Cartographer, Beacon (pre-built firmware) |
 | Host MCU | Raspberry Pi, CB1, Orange Pi |
+
+### Supported Probes
+
+Probes with their own MCU are detected automatically and flashed with pre-built firmware from their respective repositories:
+
+| Probe | Config Section | Firmware Repo | Connection |
+|---|---|---|---|
+| **Cartographer** | `[cartographer]` / `[scanner]` | `~/cartographer-klipper` | CAN / USB |
+| **Beacon** | `[beacon]` | `~/beacon-klipper` | CAN / USB |
+| **IDM** | `[idm]` | `~/idm-klipper` | CAN / USB |
+| **BTT Eddy** | Standard `[mcu]` | Klipper build (automatic) | USB |
+
+> Probes without their own MCU (BLTouch, Klicky, etc.) don't need firmware updates and are not affected by this tool.
 
 ## Installation
 
