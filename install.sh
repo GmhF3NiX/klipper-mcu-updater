@@ -156,22 +156,20 @@ chmod +x "$INSTALL_DIR"/*.sh
 
 # Create Mainsail macros if wanted
 if [ "$INSTALL_MACROS" = "yes" ] || [ "$INSTALL_MACROS" = "y" ]; then
-    cat > "$HOME/printer_data/config/mcu_updater.cfg" << 'MACROS'
+    cat > "$HOME/printer_data/config/mcu_updater.cfg" << MACROS
 # Klipper MCU Updater - Mainsail Macros
 # https://github.com/GmhF3NiX/klipper-mcu-updater
 #
 # DISCLAIMER: Use at your own risk. The author assumes no
 # responsibility for any damage to hardware or software.
-#
-# Add to printer.cfg:  [include mcu_updater.cfg]
 
 [gcode_shell_command mcu_scan]
-command: python3 $INSTALL_DIR/klipper_mcu_updater.py scan
+command: python3 ${INSTALL_DIR}/klipper_mcu_updater.py scan
 timeout: 30.
 verbose: True
 
 [gcode_shell_command mcu_backup]
-command: python3 $INSTALL_DIR/klipper_mcu_updater.py backup
+command: python3 ${INSTALL_DIR}/klipper_mcu_updater.py backup
 timeout: 60.
 verbose: True
 
@@ -186,6 +184,14 @@ gcode:
     RUN_SHELL_COMMAND CMD=mcu_backup
 MACROS
     echo "Mainsail macros created: ~/printer_data/config/mcu_updater.cfg"
+
+    # Auto-add include to printer.cfg if not already there
+    if ! grep -q "include mcu_updater.cfg" "$HOME/printer_data/config/printer.cfg" 2>/dev/null; then
+        sed -i '1a [include mcu_updater.cfg]' "$HOME/printer_data/config/printer.cfg"
+        echo "  [include mcu_updater.cfg] added to printer.cfg"
+    else
+        echo "  [include mcu_updater.cfg] already in printer.cfg"
+    fi
 else
     echo "Mainsail macros skipped"
 fi
