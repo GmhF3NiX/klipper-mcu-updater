@@ -1,8 +1,6 @@
 #!/bin/bash
 # Klipper MCU Updater - Installation Script
 
-set -e
-
 INSTALL_DIR="$HOME/klipper-mcu-updater"
 SCRIPT_URL="https://raw.githubusercontent.com/GmhF3NiX/klipper-mcu-updater/main/klipper_mcu_updater.py"
 
@@ -111,7 +109,7 @@ mkdir -p "$INSTALL_DIR"
 
 # Download or copy main script
 if [ -f "klipper_mcu_updater.py" ]; then
-    cp klipper_mcu_updater.py "$INSTALL_DIR/"
+    cp klipper_mcu_updater.py "$INSTALL_DIR/" 2>/dev/null || true
     echo "Main script copied"
 else
     echo "Downloading klipper_mcu_updater.py..."
