@@ -515,6 +515,9 @@ class KlipperMCUUpdater:
                 if line.endswith(":"):
                     current_name = line[:-1].strip()
                 elif line.startswith("/dev/video"):
+                    # Skip RPi internal codec/ISP devices
+                    if any(skip in current_name.lower() for skip in ["bcm2835", "rpi-", "isp", "codec"]):
+                        continue
                     device = line.strip()
                     # Get resolution info
                     res_result = run_cmd(
@@ -547,6 +550,9 @@ class KlipperMCUUpdater:
                         f"cat /sys/class/video4linux/{device.split('/')[-1]}/name 2>/dev/null"
                     )
                     name = name_result.stdout.strip() if name_result.returncode == 0 and name_result.stdout.strip() else "USB Camera"
+                    # Filter out RPi internal codec/ISP devices
+                    if any(skip in name.lower() for skip in ["bcm2835", "rpi-", "isp", "codec"]):
+                        continue
                     cam_info = {"name": name, "device": device, "max_resolution": ""}
                     self.webcams.append(cam_info)
                     cprint(f"  {device}: {name}", "green")
