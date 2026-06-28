@@ -18,168 +18,6 @@
 > **DISCLAIMER: USE AT YOUR OWN RISK!**
 > This tool flashes firmware to your 3D printer MCUs. Incorrect firmware can render your printer inoperable. The author assumes **NO responsibility** for any damage to hardware, software, or any other losses resulting from the use of this tool. By installing and using this tool, you acknowledge that you understand the risks involved and accept full responsibility.
 
-## Scan Output Example
-
-```
-=== Scanning for Klipper MCUs ===
-
-[1/5] Parsing printer configuration...
-  Found MCU 'mcu' (can)
-  Found MCU 'rpi' (linux)
-  Found MCU 'EBB' (can)
-  Found MCU 'cartographer' (can)
-  Found Cartographer/Scanner 'cartographer' (linked to [mcu cartographer])
-[2/5] Scanning CAN bus...
-[3/5] Scanning USB devices...
-  USB: Bus 001 Device 004: ID 1d50:606f OpenMoko, Inc. Geschwister Schneider CAN adapter
-[4/5] Reading Klipper log for MCU details...
-  Querying Moonraker for live MCU versions...
-  mcu: v0.13.0-700-gd6ea62542
-  rpi: v0.13.0-700-gd6ea62542
-  EBB: v0.13.0-700-gd6ea62542
-  cartographer: CARTOGRAPHER 5.1.0
-
-============================================================
- Detected MCUs
-============================================================
-
-  [mcu]
-    MCU Type:        stm32f429xx
-    Connection:      can
-    CAN UUID:        f622be57a636
-    CAN Bridge:      Yes
-    CAN Pins:        PD0_PD1
-    CAN Speed:       1000000
-    FW Version:      v0.13.0-700-gd6ea62542
-    Klipper Host:    v0.13.0-700-gd6ea62542
-    Katapult:        INSTALLED
-    Status:          UP TO DATE
-
-  [rpi]
-    MCU Type:        linux
-    Connection:      linux
-    Serial:          /tmp/klipper_host_mcu
-    CAN Speed:       1000000
-    FW Version:      v0.13.0-700-gd6ea62542
-    Klipper Host:    v0.13.0-700-gd6ea62542
-    Katapult:        Not needed (Linux)
-    Status:          UP TO DATE
-
-  [EBB]
-    MCU Type:        stm32g0b1xx
-    Connection:      can
-    CAN UUID:        1d9bcd48ca42
-    CAN Pins:        PB12_PB13
-    CAN Speed:       1000000
-    FW Version:      v0.13.0-700-gd6ea62542
-    Klipper Host:    v0.13.0-700-gd6ea62542
-    Katapult:        INSTALLED
-    Status:          UP TO DATE
-
-  [cartographer]
-    MCU Type:        cartographer
-    Connection:      can
-    CAN UUID:        4a9bf65fd881
-    CAN Speed:       1000000
-    FW Version:      CARTOGRAPHER 5.1.0
-    Klipper Host:    v0.13.0-700-gd6ea62542
-    Katapult:        INSTALLED
-    Status:          NEEDS UPDATE
-
-[5/5] Scanning USB webcams...
-  /dev/video0: Logitech C920 HD Pro (1920x1080)
-  /dev/video2: USB Camera (1280x720)
-
-============================================================
-
-The scan output is shown in the **Mainsail console** when you press the **MCU_SCAN** macro button, or in your SSH terminal when running the scan command.
-```
-
-> **Where to see the output:** When using the MCU_SCAN macro in Mainsail, the results appear in the **Mainsail console** (bottom of the dashboard). Via SSH, the output is shown directly in your terminal.
-
-## Installation Example
-
-```
-============================================
- Klipper MCU Updater - Installer
- by GmhF3NiX
-============================================
-
-============================================
-              DISCLAIMER
-============================================
-
- This tool flashes firmware to your 3D
- printer MCUs. Incorrect firmware can
- render your printer inoperable.
-
- USE AT YOUR OWN RISK!
-
- The author assumes NO responsibility
- for any damage to hardware, software,
- or any other losses resulting from the
- use of this tool.
-
- By continuing, you acknowledge that:
-  - You understand the risks involved
-  - You accept full responsibility
-  - Katapult bootloader must be installed
-    on all target MCUs
-  - You will NOT run this during a print
-
-============================================
-
-Do you accept these terms and want to continue? (yes/no): yes
-
-Checking prerequisites...
-  Klipper: OK
-  Katapult: OK
-  Printer data: OK
-
-============================================
-  Mainsail Integration
-============================================
-
-Would you like to install Mainsail macro
-buttons for one-click updates from the
-web interface?
-
-This will:
-  - Install gcode_shell_command extension
-  - Create mcu_updater.cfg with macros
-  - You need to add [include mcu_updater.cfg]
-    to your printer.cfg
-
-Install Mainsail macros? (yes/no): yes
-
-  gcode_shell_command already installed
-Main script copied
-Mainsail macros created: ~/printer_data/config/mcu_updater.cfg
-
-============================================
- Installation complete!
-============================================
-
- Files installed to: /home/pi/klipper-mcu-updater
-
- CLI usage:
-   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py scan
-   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update
-   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update --target EBB
-   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py backup
-
- Mainsail setup:
-   1. Add to printer.cfg:  [include mcu_updater.cfg]
-   2. Restart Klipper
-   3. Macro buttons: MCU_SCAN / MCU_UPDATE_ALL / MCU_BACKUP
-
- REMINDER: Use at your own risk!
- The author assumes no responsibility for
- any damage to hardware or software.
-
-============================================
-```
-
 ## Features
 
 - **Auto-Detection** - Scans CAN bus, USB devices, and Klipper config to find all MCUs
@@ -188,8 +26,9 @@ Mainsail macros created: ~/printer_data/config/mcu_updater.cfg
 - **Rollback/Restore** - If anything breaks, restore configs + Klipper version + all MCU firmware with one command
 - **Katapult Check** - Verifies Katapult bootloader is installed, offers to flash it if missing
 - **Universal** - Works with any STM32-based board (Octopus, Spider, EBB, SHT, etc.)
-- **Cartographer/Scanner Support** - Detects and updates Cartographer probes
-- **Mainsail Integration** - Macro buttons for one-click updates from the web UI
+- **Cartographer/Scanner Support** - Detects and updates Cartographer, Beacon, IDM probes
+- **Webcam Detection** - Scans and lists connected USB webcams with device IDs
+- **Mainsail Integration** - Macro buttons for scanning and backups from the web UI
 - **Selective Updates** - Update all MCUs at once or pick individual targets
 
 ## Requirements
@@ -238,26 +77,29 @@ Probes with their own MCU are detected automatically and flashed with pre-built 
 ## Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/GmhF3NiX/klipper-mcu-updater.git
-
-# Run installer
 cd klipper-mcu-updater
 bash install.sh
 ```
 
-## Uninstall
-
-```bash
-rm -rf ~/klipper-mcu-updater
-rm -f ~/printer_data/config/mcu_updater.cfg
-sed -i '/include mcu_updater/d' ~/printer_data/config/printer.cfg
-```
-Then restart Klipper.
-
 Or one-liner:
 ```bash
-curl -s https://raw.githubusercontent.com/GmhF3NiX/klipper-mcu-updater/main/install.sh | bash
+cd ~ && git clone https://github.com/GmhF3NiX/klipper-mcu-updater.git && cd klipper-mcu-updater && bash install.sh
+```
+
+## Uninstall
+
+One-liner to completely remove the tool:
+
+```bash
+rm -rf ~/klipper-mcu-updater && rm -f ~/printer_data/config/mcu_updater.cfg && sed -i '/include mcu_updater/d' ~/printer_data/config/printer.cfg
+```
+
+Then restart Klipper.
+
+To reinstall after uninstalling:
+```bash
+cd ~ && git clone https://github.com/GmhF3NiX/klipper-mcu-updater.git && cd klipper-mcu-updater && bash install.sh
 ```
 
 ## Usage
@@ -296,10 +138,9 @@ After installation, these macro buttons appear in Mainsail:
 | **MCU_SCAN** | Scan and display all MCUs with versions |
 | **MCU_BACKUP** | Create configuration backup |
 
-> **Note:** Firmware updates are **only available via SSH terminal**, not from Mainsail. The update process stops and restarts Klipper, which cannot be done reliably from within Mainsail. Use:
-> ```bash
-> python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update
-> ```
+> **Note:** Firmware updates are **only available via SSH terminal**, not from Mainsail. The update process stops and restarts Klipper, which cannot be done reliably from within Mainsail.
+
+> **Where to see the output:** When using the MCU_SCAN macro in Mainsail, the results appear in the **Mainsail console** (bottom of the dashboard). Via SSH, the output is shown directly in your terminal.
 
 ## How It Works
 
@@ -342,15 +183,6 @@ python3 ~/klipper-mcu-updater/klipper_mcu_updater.py restore --backup backup_202
 - CAN bridge MCUs (e.g., Octopus in USB-CAN bridge mode) are handled specially - CAN interface is restarted after flashing.
 - Cartographer/Beacon probes use pre-built firmware from their repos, not custom Klipper builds.
 
-## Project Structure
-
-```
-klipper-mcu-updater/
-├── klipper_mcu_updater.py   # Main script
-├── install.sh               # Installer
-└── README.md                # This file
-```
-
 ## Support & Donate
 
 If you find this tool useful, consider supporting the project:
@@ -364,11 +196,156 @@ Pull requests welcome! Areas that need work:
 
 - [x] Automatic Katapult detection per MCU
 - [x] Cartographer/Scanner probe support
+- [x] Beacon/IDM probe support
+- [x] USB webcam detection
 - [ ] RP2040 support (USB boot mode)
 - [ ] Cartographer firmware auto-download
 - [ ] Interactive mode with menus
 - [ ] Moonraker component integration
 - [ ] DFU fallback when Katapult is not available
+
+## Project Structure
+
+```
+klipper-mcu-updater/
+├── klipper_mcu_updater.py   # Main script
+├── install.sh               # Installer
+├── logo.svg                 # Project logo
+├── LICENSE                  # License file
+└── README.md                # This file
+```
+
+---
+
+## Examples
+
+### Scan Output
+
+```
+=== Scanning for Klipper MCUs ===
+
+[1/5] Parsing printer configuration...
+  Found MCU 'mcu' (can)
+  Found MCU 'rpi' (linux)
+  Found MCU 'EBB' (can)
+  Found MCU 'cartographer' (can)
+  Found Cartographer/Scanner 'cartographer' (linked to [mcu cartographer])
+[2/5] Scanning CAN bus...
+[3/5] Scanning USB devices...
+  USB: Bus 001 Device 004: ID 1d50:606f OpenMoko, Inc. Geschwister Schneider CAN adapter
+[4/5] Reading Klipper log for MCU details...
+  Querying Moonraker for live MCU versions...
+  mcu: v0.13.0-700-gd6ea62542
+  rpi: v0.13.0-700-gd6ea62542
+  EBB: v0.13.0-700-gd6ea62542
+  cartographer: CARTOGRAPHER 5.1.0
+[5/5] Scanning USB webcams...
+  No webcams found
+
+============================================================
+ Detected MCUs
+============================================================
+
+  [mcu]
+    MCU Type:        stm32f429xx
+    Connection:      can
+    CAN UUID:        f622be57a636
+    CAN Bridge:      Yes
+    CAN Pins:        PD0_PD1
+    CAN Speed:       1000000
+    FW Version:      v0.13.0-700-gd6ea62542
+    Klipper Host:    v0.13.0-700-gd6ea62542
+    Katapult:        INSTALLED
+    Status:          UP TO DATE
+
+  [rpi]
+    MCU Type:        linux
+    Connection:      linux
+    Serial:          /tmp/klipper_host_mcu
+    CAN Speed:       1000000
+    FW Version:      v0.13.0-700-gd6ea62542
+    Klipper Host:    v0.13.0-700-gd6ea62542
+    Katapult:        Not needed (Linux)
+    Status:          UP TO DATE
+
+  [EBB]
+    MCU Type:        stm32g0b1xx
+    Connection:      can
+    CAN UUID:        1d9bcd48ca42
+    CAN Pins:        PB12_PB13
+    CAN Speed:       1000000
+    FW Version:      v0.13.0-700-gd6ea62542
+    Klipper Host:    v0.13.0-700-gd6ea62542
+    Katapult:        INSTALLED
+    Status:          UP TO DATE
+
+  [cartographer]
+    MCU Type:        cartographer
+    Connection:      can
+    CAN UUID:        4a9bf65fd881
+    CAN Speed:       1000000
+    FW Version:      CARTOGRAPHER 5.1.0
+    Klipper Host:    v0.13.0-700-gd6ea62542
+    Katapult:        INSTALLED
+    Status:          NEEDS UPDATE
+
+============================================================
+```
+
+### Installation Output
+
+```
+============================================
+ Klipper MCU Updater - Installer
+ by GmhF3NiX
+============================================
+
+============================================
+              DISCLAIMER
+============================================
+
+ This tool flashes firmware to your 3D
+ printer MCUs. Incorrect firmware can
+ render your printer inoperable.
+
+ USE AT YOUR OWN RISK!
+
+ The author assumes NO responsibility
+ for any damage to hardware, software,
+ or any other losses resulting from the
+ use of this tool.
+
+ By continuing, you acknowledge that:
+  - You understand the risks involved
+  - You accept full responsibility
+  - Katapult bootloader must be installed
+    on all target MCUs
+  - You will NOT run this during a print
+
+============================================
+
+Do you accept these terms and want to continue? (yes/no): yes
+
+Creating Safety Backup...
+  Backup saved to: ~/printer_data/config_backups/pre_install_20260628_150123
+
+Checking prerequisites...
+  Klipper: OK
+  Katapult: OK
+  Printer data: OK
+
+Install Mainsail macros? (yes/no): yes
+
+  gcode_shell_command installed
+  Mainsail macros created
+  [include mcu_updater.cfg] added to printer.cfg
+
+============================================
+ Installation complete!
+============================================
+
+Running initial MCU scan...
+```
 
 ## License
 
