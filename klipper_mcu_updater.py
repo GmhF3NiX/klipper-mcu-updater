@@ -1248,7 +1248,10 @@ class KlipperMCUUpdater:
 
     def update_all(self, backup: bool = True):
         cprint("\n" + "=" * 50, "bold")
-        cprint(" Updating ALL MCUs", "bold")
+        cprint(" !!!  PLEASE WAIT  -  DO NOT TURN OFF  !!!", "red")
+        cprint(" Updating ALL MCU firmware...", "bold")
+        cprint(" This may take several minutes.", "bold")
+        cprint(" Klipper will restart automatically when done.", "bold")
         cprint("=" * 50, "bold")
 
         if not self.check_katapult_all():
