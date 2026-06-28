@@ -211,9 +211,9 @@ class KlipperMCUUpdater:
             if include_path.exists():
                 all_content += "\n" + include_path.read_text()
 
-        # Find all MCU sections
+        # Find all MCU sections (handle inline comments after ])
         mcu_pattern = re.compile(
-            r'\[mcu\s*(\w*)\]\s*\n((?:(?!\[).)*)',
+            r'\[mcu\s*(\w*)\][^\n]*\n((?:(?!\[).)*)',
             re.DOTALL
         )
 
@@ -267,7 +267,12 @@ class KlipperMCUUpdater:
                     existing = m
                     break
 
-            if not existing:
+            if existing:
+                # Mark existing MCU as cartographer type
+                existing.mcu_type = "cartographer"
+                existing.config_section = f"[{section_type}]"
+                cprint(f"  Found Cartographer/Scanner '{mcu_name}' (linked to [mcu {mcu_name}])", "green")
+            else:
                 # Cartographer has its own canbus_uuid in the section
                 uuid_match = re.search(r'^canbus_uuid:\s*(\w+)', section, re.MULTILINE)
                 serial_match = re.search(r'^serial:\s*(.+)', section, re.MULTILINE)
