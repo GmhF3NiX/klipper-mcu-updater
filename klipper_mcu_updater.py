@@ -430,6 +430,9 @@ class KlipperMCUUpdater:
                 mcu.bootloader_offset = mcu.application_start - 0x08000000
 
         # Detect Katapult from log evidence
+        # Search for ANY Katapult evidence in the entire log
+        has_any_katapult_log = "Katapult Connected" in log_content or "katapult" in log_content.lower()
+
         for mcu in self.mcus:
             if mcu.katapult_status != "unknown":
                 continue
@@ -437,21 +440,28 @@ class KlipperMCUUpdater:
             if mcu.bootloader_offset and mcu.bootloader_offset > 0:
                 mcu.has_katapult = True
                 mcu.katapult_status = "installed"
-            # If MCU communicates via CAN and Klipper is running, Katapult must be there
-            # (CAN devices need Katapult to be flashed in the first place)
-            elif mcu.connection_type == "can" and mcu.uuid:
-                # Check log for Katapult evidence
+            # If MCU communicates via CAN, Katapult is needed for OTA updates
+            elif mcu.connection_type == "can" and mcu.mcu_type:
+                mcu.has_katapult = True
+                mcu.katapult_status = "installed"
+            # USB devices: check log for Katapult evidence for this MCU type
+            elif mcu.connection_type == "usb" and mcu.mcu_type:
                 katapult_evidence = re.search(
-                    rf"Katapult Connected.*?MCU type:\s*{re.escape(mcu.mcu_type or '')}",
+                    rf"Katapult Connected.*?MCU type:\s*{re.escape(mcu.mcu_type)}",
                     log_content, re.DOTALL
                 )
                 if katapult_evidence:
                     mcu.has_katapult = True
                     mcu.katapult_status = "installed"
-                elif mcu.mcu_type:
-                    # CAN devices generally require Katapult for OTA updates
+                # If Klipper is running on this MCU and it has a serial path
+                # with "katapult" in the device name, it was flashed via Katapult
+                elif mcu.serial_path and "katapult" in (mcu.serial_path or "").lower():
                     mcu.has_katapult = True
                     mcu.katapult_status = "installed"
+                # Check if serial device name contains klipper (running app)
+                # which means it was likely flashed via some bootloader
+                elif mcu.serial_path and "klipper" in (mcu.serial_path or "").lower():
+                    mcu.katapult_status = "unknown (verify manually)"
 
         # Query Moonraker for live MCU versions
         self._query_moonraker_versions()
@@ -604,9 +614,14 @@ class KlipperMCUUpdater:
 
             cprint("\n  Katapult bootloader is REQUIRED for firmware updates.", "yellow")
             cprint("  Without Katapult, MCUs cannot be flashed over CAN/USB.", "yellow")
-            cprint("  Katapult must be flashed via DFU mode (physical button).\n", "yellow")
+            cprint("  Katapult must be flashed via DFU mode (physical button).", "yellow")
+            cprint("", "yellow")
+            cprint("  NOTE: If your MCUs already have Klipper running and were", "yellow")
+            cprint("  previously flashed via Katapult, this may be a false alarm.", "yellow")
+            cprint("  Katapult cannot always be detected while Klipper is running.", "yellow")
+            cprint("", "yellow")
 
-            response = input("  Would you like to install Katapult on these MCUs? (yes/no): ").strip().lower()
+            response = input("  Options: [y]es install Katapult / [s]kip and update anyway / [n]o abort: ").strip().lower()
             if response in ("yes", "y"):
                 for mcu in mcus_without_katapult:
                     success = self.install_katapult(mcu)
@@ -615,8 +630,15 @@ class KlipperMCUUpdater:
                         cprint("  Update aborted.", "red")
                         return False
                 return True
+            elif response in ("skip", "s"):
+                cprint("\n  Skipping Katapult check. Assuming Katapult is installed.", "yellow")
+                cprint("  If update fails, Katapult may need to be installed via DFU.\n", "yellow")
+                for mcu in mcus_without_katapult:
+                    mcu.has_katapult = True
+                    mcu.katapult_status = "assumed"
+                return True
             else:
-                cprint("\n  Update aborted. Katapult is required on all target MCUs.", "red")
+                cprint("\n  Update aborted.", "red")
                 return False
 
         cprint("\n  All MCUs have Katapult bootloader. Ready to update!", "green")
