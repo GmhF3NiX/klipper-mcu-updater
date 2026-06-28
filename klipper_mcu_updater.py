@@ -1090,11 +1090,22 @@ class KlipperMCUUpdater:
             return False
 
     def _flash_linux_mcu(self) -> bool:
-        result = run_cmd(f"cd {KLIPPER_DIR} && sudo make flash 2>&1", timeout=60)
+        # Try without sudo first (if user has permissions), then with sudo
+        result = run_cmd(f"cd {KLIPPER_DIR} && sudo -n make flash 2>&1", timeout=60)
         if "Installing" in (result.stdout or ""):
             cprint("  RPi MCU flashed", "green")
             return True
-        cprint(f"  RPi MCU flash failed", "red")
+        # Fallback: copy binary directly
+        result = run_cmd(
+            f"cd {KLIPPER_DIR} && sudo cp out/klipper.elf /usr/local/bin/klipper_mcu 2>&1",
+            timeout=30
+        )
+        if result.returncode == 0:
+            run_cmd("sudo systemctl restart klipper_mcu 2>/dev/null")
+            cprint("  RPi MCU flashed (direct copy)", "green")
+            return True
+        cprint(f"  RPi MCU flash failed (sudo may need NOPASSWD)", "red")
+        cprint(f"  Fix: add 'pi ALL=(ALL) NOPASSWD: ALL' to /etc/sudoers", "yellow")
         return False
 
     def _flash_via_katapult_can(self, mcu: MCUInfo) -> bool:
@@ -1158,6 +1169,10 @@ class KlipperMCUUpdater:
         cprint(f" Updating: {mcu.name} ({mcu.mcu_type})", "bold")
         cprint(f"{'=' * 50}", "bold")
 
+        # Cartographer uses pre-built firmware, not Klipper build
+        if mcu.mcu_type == "cartographer":
+            return self._update_cartographer(mcu)
+
         if not self.build_firmware(mcu):
             return False
 
@@ -1171,6 +1186,65 @@ class KlipperMCUUpdater:
             time.sleep(3)
 
         return success
+
+    def _update_cartographer(self, mcu: MCUInfo) -> bool:
+        carto_dir = Path.home() / "cartographer-klipper"
+        if not carto_dir.exists():
+            cprint("  cartographer-klipper repo not found at ~/cartographer-klipper", "red")
+            return False
+
+        # Update the repo first
+        cprint("  Updating cartographer-klipper repo...", "yellow")
+        run_cmd(f"cd {carto_dir} && git pull 2>&1", timeout=30)
+
+        # Find the right firmware binary based on CAN speed
+        can_speed = mcu.can_speed or 1000000
+        speed_str = str(can_speed)
+
+        # Search for matching firmware
+        fw_patterns = [
+            carto_dir / f"firmware/v2-v3/survey/5.1.0/Survey_Cartographer_CAN_{speed_str}_8kib_offset.bin",
+            carto_dir / f"firmware/v2-v3/Cartographer_CAN_{speed_str}_8kib_offset.bin",
+            carto_dir / f"firmware/v2-v3/survey/5.1.0/HT/Survey_Cartographer_CAN_{speed_str}_8kib_offset.bin",
+        ]
+
+        firmware = None
+        for fw_path in fw_patterns:
+            if fw_path.exists():
+                firmware = fw_path
+                break
+
+        if not firmware:
+            cprint(f"  No Cartographer firmware found for CAN speed {speed_str}", "red")
+            cprint(f"  Searched in: {carto_dir / 'firmware/'}", "yellow")
+            # List available firmware
+            result = run_cmd(f"find {carto_dir}/firmware -name '*CAN*' -name '*.bin' 2>/dev/null")
+            if result.stdout:
+                cprint("  Available firmware files:", "yellow")
+                for line in result.stdout.strip().split("\n")[:5]:
+                    cprint(f"    {line.strip()}", "yellow")
+            return False
+
+        cprint(f"  Firmware: {firmware.name}", "green")
+
+        if not mcu.uuid:
+            cprint("  No CAN UUID for Cartographer!", "red")
+            return False
+
+        # Flash via Katapult
+        flash_script = KATAPULT_DIR / "scripts" / "flash_can.py"
+        cmd = (
+            f"python3 {flash_script} -i {mcu.can_interface} "
+            f"-u {mcu.uuid} -f {firmware}"
+        )
+        result = run_cmd(cmd, timeout=120)
+
+        if "Programming Complete" in (result.stdout or ""):
+            cprint(f"  Cartographer flashed", "green")
+            return True
+
+        cprint(f"  Cartographer flash failed: {result.stdout}", "red")
+        return False
 
     def update_all(self, backup: bool = True):
         cprint("\n" + "=" * 50, "bold")
