@@ -246,6 +246,48 @@ class KlipperMCUUpdater:
             self.mcus.append(mcu)
             cprint(f"  Found MCU '{name}' ({mcu.connection_type})", "green")
 
+        # Find Cartographer/Scanner sections (not [mcu] but has its own MCU)
+        carto_pattern = re.compile(
+            r'\[(cartographer|scanner)\]\s*\n((?:(?!\[).)*)',
+            re.DOTALL
+        )
+        for match in carto_pattern.finditer(all_content):
+            section_type = match.group(1)
+            section = match.group(2)
+
+            mcu_ref = re.search(r'^mcu:\s*(\w+)', section, re.MULTILINE)
+            if not mcu_ref:
+                continue
+
+            mcu_name = mcu_ref.group(1)
+            # Check if this MCU name already exists (as [mcu cartographer])
+            existing = None
+            for m in self.mcus:
+                if m.name == mcu_name:
+                    existing = m
+                    break
+
+            if not existing:
+                # Cartographer has its own canbus_uuid in the section
+                uuid_match = re.search(r'^canbus_uuid:\s*(\w+)', section, re.MULTILINE)
+                serial_match = re.search(r'^serial:\s*(.+)', section, re.MULTILINE)
+
+                mcu = MCUInfo(
+                    name=mcu_name,
+                    config_section=f"[{section_type}]",
+                    mcu_type="cartographer",
+                )
+
+                if uuid_match:
+                    mcu.uuid = uuid_match.group(1)
+                    mcu.connection_type = "can"
+                elif serial_match:
+                    mcu.serial_path = serial_match.group(1).strip()
+                    mcu.connection_type = "usb"
+
+                self.mcus.append(mcu)
+                cprint(f"  Found Cartographer/Scanner '{mcu_name}' ({mcu.connection_type})", "green")
+
     def _scan_can_bus(self):
         cprint("[2/4] Scanning CAN bus...", "cyan")
 
@@ -324,15 +366,14 @@ class KlipperMCUUpdater:
                 mcu.mcu_type = "linux"
                 continue
 
-            search_name = f"MCU '{mcu.name}'"
-            config_pattern = re.compile(
-                rf"{re.escape(search_name)}.*?MCU=(\w+).*?(?:CANBUS_BRIDGE=(\d))?.*?"
-                rf"(?:RESERVE_PINS_CAN=([A-Z0-9,]+))?.*?"
-                rf"(?:RESERVE_PINS_USB=([A-Z0-9,]+))?",
-                re.DOTALL
-            )
+            if mcu.mcu_type == "cartographer":
+                # Cartographer version from log
+                carto_ver = re.compile(r"mcu_version\s*=\s*(CARTOGRAPHER\s*[\d.]+)")
+                for match in carto_ver.finditer(log_content):
+                    mcu.firmware_version = match.group(1)
+                continue
 
-            # Simpler approach: find MCU type from config line
+            # Find MCU type from config line
             mcu_config_pattern = re.compile(
                 rf"MCU '{re.escape(mcu.name)}' config:.*?MCU=(\w+)"
             )
@@ -340,12 +381,11 @@ class KlipperMCUUpdater:
                 mcu.mcu_type = match.group(1)
 
             # Find CAN bridge status
-            if f"CANBUS_BRIDGE=1" in log_content:
-                bridge_pattern = re.compile(
-                    rf"MCU '{re.escape(mcu.name)}' config:.*?CANBUS_BRIDGE=1"
-                )
-                if bridge_pattern.search(log_content):
-                    mcu.is_canbridge = True
+            bridge_pattern = re.compile(
+                rf"MCU '{re.escape(mcu.name)}' config:.*?CANBUS_BRIDGE=1"
+            )
+            if bridge_pattern.search(log_content):
+                mcu.is_canbridge = True
 
             # Find CAN pins from RESERVE_PINS_CAN
             can_pins_pattern = re.compile(
@@ -353,8 +393,7 @@ class KlipperMCUUpdater:
             )
             match = can_pins_pattern.search(log_content)
             if match:
-                pins = match.group(1)
-                mcu.can_pins = pins.replace(",", "_")
+                mcu.can_pins = match.group(1).replace(",", "_")
 
             # Find USB pins
             usb_pins_pattern = re.compile(
@@ -364,11 +403,6 @@ class KlipperMCUUpdater:
             if match:
                 mcu.usb_pins = match.group(1).replace(",", "_")
 
-            # Find firmware version
-            version_pattern = re.compile(r"Last MCU build version:\s*(v[\d.]+-\d+-g\w+)")
-            for match in version_pattern.finditer(log_content):
-                mcu.firmware_version = match.group(1)
-
             # Find bootloader offset from Katapult connection
             app_start_pattern = re.compile(
                 rf"Application Start:\s*(0x[0-9a-fA-F]+)"
@@ -377,8 +411,57 @@ class KlipperMCUUpdater:
                 mcu.application_start = int(match.group(1), 16)
                 mcu.bootloader_offset = mcu.application_start - 0x08000000
 
+        # Query Moonraker for live MCU versions
+        self._query_moonraker_versions()
+
             if mcu.mcu_type:
                 cprint(f"  {mcu.name}: {mcu.mcu_type} (fw: {mcu.firmware_version or 'unknown'})", "green")
+
+    def _query_moonraker_versions(self):
+        cprint("  Querying Moonraker for live MCU versions...", "cyan")
+        try:
+            import urllib.request
+            url = f"{MOONRAKER_URL}/printer/objects/query?configfile"
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+
+            # Also query MCU info directly
+            url2 = f"{MOONRAKER_URL}/printer/info"
+            req2 = urllib.request.Request(url2, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req2, timeout=5) as resp2:
+                info = json.loads(resp2.read().decode())
+
+            if info.get("result", {}).get("state") != "ready":
+                cprint("  Klipper not ready, skipping live version query", "yellow")
+                return
+
+            # Query each MCU's version via object query
+            mcu_names = [m.name for m in self.mcus if not m.is_linux_mcu]
+            for mcu in self.mcus:
+                query_name = "mcu" if mcu.name == "mcu" else f"mcu {mcu.name}"
+                try:
+                    url3 = f"{MOONRAKER_URL}/printer/objects/query?{query_name.replace(' ', '%20')}"
+                    req3 = urllib.request.Request(url3, headers={"Accept": "application/json"})
+                    with urllib.request.urlopen(req3, timeout=5) as resp3:
+                        mcu_data = json.loads(resp3.read().decode())
+
+                    status = mcu_data.get("result", {}).get("status", {})
+                    mcu_info = status.get(query_name, {})
+                    mcu_version = mcu_info.get("mcu_version", "")
+                    mcu_build = mcu_info.get("mcu_build_versions", "")
+
+                    if mcu_version:
+                        mcu.firmware_version = mcu_version
+                        cprint(f"  {mcu.name}: {mcu_version}", "green")
+                    elif mcu.is_linux_mcu:
+                        mcu.firmware_version = self.klipper_version
+                except Exception:
+                    pass
+
+        except Exception as e:
+            cprint(f"  Moonraker query failed: {e}", "yellow")
+            cprint("  Falling back to log-based version detection", "yellow")
 
     def _find_mcu_by_uuid(self, uuid: str) -> Optional[MCUInfo]:
         for mcu in self.mcus:
