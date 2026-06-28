@@ -724,7 +724,7 @@ class KlipperMCUUpdater:
 
         cprint("\n" + "=" * 60 + "\n", "bold")
 
-    # ========== BACKUP ==========
+    # ========== BACKUP & RESTORE ==========
 
     def create_backup(self) -> str:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -745,25 +745,255 @@ class KlipperMCUUpdater:
             shutil.copy2(klipper_config, backup_path / "klipper_dotconfig")
             cprint("  Klipper build config backed up", "green")
 
-        # Save MCU info
+        # Save Klipper git commit hash for exact version restore
+        result = run_cmd(f"cd {KLIPPER_DIR} && git rev-parse HEAD")
+        klipper_commit = result.stdout.strip() if result.returncode == 0 else "unknown"
+
+        # Save MCU info with all details needed for restore
         mcu_info_file = backup_path / "mcu_info.json"
-        mcu_data = []
+        mcu_data = {
+            "backup_timestamp": timestamp,
+            "klipper_version": self.klipper_version,
+            "klipper_commit": klipper_commit,
+            "mcus": []
+        }
         for mcu in self.mcus:
-            mcu_data.append({
+            mcu_entry = {
                 "name": mcu.name,
                 "uuid": mcu.uuid,
                 "mcu_type": mcu.mcu_type,
                 "firmware_version": mcu.firmware_version,
                 "connection_type": mcu.connection_type,
+                "serial_path": mcu.serial_path,
+                "can_interface": mcu.can_interface,
+                "can_speed": mcu.can_speed,
                 "can_pins": mcu.can_pins,
+                "usb_pins": mcu.usb_pins,
                 "is_canbridge": mcu.is_canbridge,
+                "is_linux_mcu": mcu.is_linux_mcu,
                 "bootloader_offset": mcu.bootloader_offset,
-            })
+                "clock_ref": mcu.clock_ref,
+                "has_katapult": mcu.has_katapult,
+            }
+            # Generate and save the klipper .config for this MCU
+            try:
+                if not mcu.is_linux_mcu and mcu.mcu_type and mcu.mcu_type != "cartographer":
+                    config_lines = self._generate_klipper_config(mcu)
+                    mcu_entry["klipper_build_config"] = config_lines
+                elif mcu.is_linux_mcu:
+                    mcu_entry["klipper_build_config"] = ["CONFIG_LOW_LEVEL_OPTIONS=y", "CONFIG_MACH_LINUX=y"]
+            except ValueError:
+                pass
+            mcu_data["mcus"].append(mcu_entry)
+
         mcu_info_file.write_text(json.dumps(mcu_data, indent=2))
-        cprint("  MCU info saved", "green")
+        cprint("  MCU info + build configs saved", "green")
+        cprint(f"  Klipper commit: {klipper_commit[:12]}", "green")
+
+        # Save latest backup path for quick restore
+        latest_file = BACKUP_DIR / "latest"
+        latest_file.write_text(str(backup_path))
 
         cprint(f"  Backup complete: {backup_path}", "green")
         return str(backup_path)
+
+    def list_backups(self):
+        cprint("\n=== Available Backups ===\n", "bold")
+        if not BACKUP_DIR.exists():
+            cprint("  No backups found.", "yellow")
+            return
+
+        backups = sorted(BACKUP_DIR.glob("backup_*"), reverse=True)
+        if not backups:
+            cprint("  No backups found.", "yellow")
+            return
+
+        for i, bp in enumerate(backups):
+            info_file = bp / "mcu_info.json"
+            if info_file.exists():
+                try:
+                    data = json.loads(info_file.read_text())
+                    version = data.get("klipper_version", "unknown")
+                    ts = data.get("backup_timestamp", bp.name)
+                    mcu_count = len(data.get("mcus", []))
+                    marker = " <-- latest" if i == 0 else ""
+                    cprint(f"  [{i+1}] {bp.name}  |  Klipper: {version}  |  {mcu_count} MCUs{marker}", "green" if i == 0 else "reset")
+                except Exception:
+                    cprint(f"  [{i+1}] {bp.name}  |  (info unavailable)", "yellow")
+            else:
+                cprint(f"  [{i+1}] {bp.name}  |  (no mcu_info.json)", "yellow")
+        cprint("")
+
+    def restore(self, backup_name: Optional[str] = None):
+        cprint("\n" + "=" * 50, "bold")
+        cprint(" RESTORE from Backup", "bold")
+        cprint("=" * 50, "bold")
+
+        # Find backup to restore
+        if backup_name:
+            backup_path = BACKUP_DIR / backup_name
+            if not backup_path.exists():
+                # Try with backup_ prefix
+                backup_path = BACKUP_DIR / f"backup_{backup_name}"
+        else:
+            # Use latest backup
+            latest_file = BACKUP_DIR / "latest"
+            if latest_file.exists():
+                backup_path = Path(latest_file.read_text().strip())
+            else:
+                # Find most recent
+                backups = sorted(BACKUP_DIR.glob("backup_*"), reverse=True)
+                if not backups:
+                    cprint("  No backups found!", "red")
+                    return False
+                backup_path = backups[0]
+
+        if not backup_path.exists():
+            cprint(f"  Backup not found: {backup_path}", "red")
+            return False
+
+        info_file = backup_path / "mcu_info.json"
+        if not info_file.exists():
+            cprint(f"  mcu_info.json not found in backup!", "red")
+            return False
+
+        data = json.loads(info_file.read_text())
+        klipper_commit = data.get("klipper_commit", "unknown")
+        klipper_version = data.get("klipper_version", "unknown")
+        mcus = data.get("mcus", [])
+
+        cprint(f"\n  Backup: {backup_path.name}", "cyan")
+        cprint(f"  Klipper version: {klipper_version}", "cyan")
+        cprint(f"  Klipper commit: {klipper_commit[:12]}", "cyan")
+        cprint(f"  MCUs in backup: {len(mcus)}", "cyan")
+
+        for mcu_data in mcus:
+            cprint(f"    - {mcu_data['name']} ({mcu_data.get('mcu_type', '?')}) fw: {mcu_data.get('firmware_version', '?')}", "cyan")
+
+        cprint(f"\n  This will:", "yellow")
+        cprint(f"    1. Restore printer config files", "yellow")
+        cprint(f"    2. Checkout Klipper to commit {klipper_commit[:12]}", "yellow")
+        cprint(f"    3. Rebuild and reflash ALL MCU firmware", "yellow")
+        cprint(f"    4. Restart Klipper", "yellow")
+        cprint(f"\n  WARNING: This will overwrite current configs and firmware!", "red")
+
+        response = input("\n  Proceed with restore? (yes/no): ").strip().lower()
+        if response not in ("yes", "y"):
+            cprint("  Restore cancelled.", "yellow")
+            return False
+
+        # Step 1: Stop Klipper
+        self.stop_klipper()
+
+        # Step 2: Restore config files
+        config_backup = backup_path / "config"
+        if config_backup.exists():
+            cprint("\n  Restoring config files...", "yellow")
+            # Remove current configs and restore from backup
+            for item in CONFIG_DIR.iterdir():
+                if item.is_file() and item.suffix == '.cfg':
+                    item.unlink()
+            for item in config_backup.iterdir():
+                if item.is_file() and item.suffix == '.cfg':
+                    shutil.copy2(item, CONFIG_DIR / item.name)
+            cprint("  Config files restored", "green")
+
+        # Step 3: Checkout Klipper to backup version
+        if klipper_commit and klipper_commit != "unknown":
+            cprint(f"\n  Checking out Klipper to {klipper_commit[:12]}...", "yellow")
+            result = run_cmd(f"cd {KLIPPER_DIR} && git checkout {klipper_commit}")
+            if result.returncode == 0:
+                cprint("  Klipper version restored", "green")
+            else:
+                cprint(f"  Warning: Could not checkout Klipper commit: {result.stderr}", "yellow")
+                cprint("  Continuing with current Klipper version...", "yellow")
+
+        # Step 4: Rebuild and reflash each MCU
+        success_count = 0
+        fail_count = 0
+
+        for mcu_data in mcus:
+            name = mcu_data["name"]
+            mcu_type = mcu_data.get("mcu_type")
+            build_config = mcu_data.get("klipper_build_config")
+            is_linux = mcu_data.get("is_linux_mcu", False)
+
+            if mcu_type == "cartographer":
+                cprint(f"\n  Skipping {name} (Cartographer uses pre-built firmware)", "yellow")
+                continue
+
+            if not build_config:
+                cprint(f"\n  Skipping {name} (no build config in backup)", "yellow")
+                continue
+
+            cprint(f"\n  Rebuilding firmware for '{name}' ({mcu_type})...", "yellow")
+
+            # Write build config
+            config_content = "\n".join(build_config) + "\n"
+            (KLIPPER_DIR / ".config").write_text(config_content)
+
+            # Build
+            cmds = [
+                f"cd {KLIPPER_DIR} && make olddefconfig 2>&1 | tail -1",
+                f"cd {KLIPPER_DIR} && make clean 2>&1 > /dev/null",
+                f"cd {KLIPPER_DIR} && make -j$(nproc) 2>&1 | tail -3",
+            ]
+            build_ok = True
+            for cmd in cmds:
+                result = run_cmd(cmd, timeout=180)
+                if result.returncode != 0:
+                    cprint(f"  Build failed for {name}: {result.stderr}", "red")
+                    build_ok = False
+                    break
+
+            if not build_ok:
+                fail_count += 1
+                continue
+
+            # Flash
+            if is_linux:
+                result = run_cmd(f"cd {KLIPPER_DIR} && sudo make flash 2>&1", timeout=60)
+                if "Installing" in (result.stdout or ""):
+                    cprint(f"  {name} restored", "green")
+                    success_count += 1
+                else:
+                    cprint(f"  {name} flash failed", "red")
+                    fail_count += 1
+            elif mcu_data.get("uuid"):
+                flash_script = KATAPULT_DIR / "scripts" / "flash_can.py"
+                can_if = mcu_data.get("can_interface", "can0")
+                uuid = mcu_data["uuid"]
+                firmware = KLIPPER_DIR / "out" / "klipper.bin"
+
+                result = run_cmd(
+                    f"python3 {flash_script} -i {can_if} -u {uuid} -f {firmware}",
+                    timeout=120
+                )
+                if "Programming Complete" in (result.stdout or ""):
+                    cprint(f"  {name} restored", "green")
+                    success_count += 1
+                else:
+                    cprint(f"  {name} flash failed", "red")
+                    fail_count += 1
+
+                # Restart CAN if bridge MCU
+                if mcu_data.get("is_canbridge"):
+                    self.restart_can_interface(can_if)
+
+        # Step 5: Start Klipper
+        self.start_klipper()
+
+        # Summary
+        cprint(f"\n" + "=" * 50, "bold")
+        cprint(f" Restore Summary", "bold")
+        cprint(f"=" * 50, "bold")
+        cprint(f"  Config files: RESTORED", "green")
+        cprint(f"  Klipper version: {klipper_version}", "green")
+        cprint(f"  MCUs restored: {success_count}", "green")
+        if fail_count:
+            cprint(f"  MCUs failed: {fail_count}", "red")
+        cprint("")
+        return fail_count == 0
 
     # ========== BUILDING ==========
 
@@ -950,8 +1180,10 @@ class KlipperMCUUpdater:
         if not self.check_katapult_all():
             return
 
-        if backup:
-            self.create_backup()
+        # Backup is ALWAYS created before update for rollback safety
+        cprint("\n  Creating mandatory backup before update...", "yellow")
+        cprint("  (Use 'restore' command to rollback if anything goes wrong)\n", "yellow")
+        self.create_backup()
 
         # Sort: Linux MCU first, then CAN bridge, then others
         sorted_mcus = sorted(self.mcus, key=lambda m: (
@@ -1043,8 +1275,10 @@ Examples:
   %(prog)s update                  Update all MCUs
   %(prog)s update --target mcu     Update main MCU only
   %(prog)s update --target EBB     Update EBB board only
-  %(prog)s update --no-backup      Skip backup before update
   %(prog)s backup                  Create config backup only
+  %(prog)s list-backups            List available backups
+  %(prog)s restore                 Restore from latest backup
+  %(prog)s restore --backup NAME   Restore from specific backup
         """
     )
 
@@ -1060,6 +1294,13 @@ Examples:
 
     # backup
     subparsers.add_parser("backup", help="Create configuration backup")
+
+    # restore
+    restore_parser = subparsers.add_parser("restore", help="Restore from backup (rollback)")
+    restore_parser.add_argument("--backup", "-b", help="Specific backup name (default: latest)")
+
+    # list-backups
+    subparsers.add_parser("list-backups", help="List available backups")
 
     args = parser.parse_args()
 
@@ -1085,6 +1326,12 @@ Examples:
 
     elif args.command == "backup":
         updater.create_backup()
+
+    elif args.command == "list-backups":
+        updater.list_backups()
+
+    elif args.command == "restore":
+        updater.restore(backup_name=args.backup if hasattr(args, 'backup') else None)
 
     elif args.command == "update":
         if not updater.mcus:
