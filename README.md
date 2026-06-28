@@ -1,6 +1,19 @@
-# Klipper MCU Updater
+<p align="center">
+  <img src="logo.svg" alt="Klipper MCU Updater" width="300">
+</p>
 
-Universal firmware update tool for Klipper 3D printers. Automatically detects MCUs, checks firmware versions, creates backups, and flashes firmware via Katapult bootloader.
+<h1 align="center">Klipper MCU Updater</h1>
+
+<p align="center">
+  Universal firmware update tool for Klipper 3D printers.<br>
+  Automatically detects MCUs, checks firmware versions, creates backups, and flashes firmware via Katapult bootloader.
+</p>
+
+<p align="center">
+  <a href="https://paypal.me/GmhF3NiX"><img src="https://img.shields.io/badge/Donate-PayPal-blue.svg" alt="Donate PayPal"></a>
+  <a href="https://tiktok.com/@rapidr3d"><img src="https://img.shields.io/badge/TikTok-@rapidr3d-black.svg" alt="TikTok"></a>
+  <a href="#license"><img src="https://img.shields.io/badge/License-Proprietary-red.svg" alt="License"></a>
+</p>
 
 > **DISCLAIMER: USE AT YOUR OWN RISK!**
 > This tool flashes firmware to your 3D printer MCUs. Incorrect firmware can render your printer inoperable. The author assumes **NO responsibility** for any damage to hardware, software, or any other losses resulting from the use of this tool. By installing and using this tool, you acknowledge that you understand the risks involved and accept full responsibility.
@@ -258,6 +271,13 @@ klipper-mcu-updater/
 └── README.md                # This file
 ```
 
+## Support & Donate
+
+If you find this tool useful, consider supporting the project:
+
+- **PayPal:** [paypal.me/GmhF3NiX](https://paypal.me/GmhF3NiX)
+- **TikTok:** [@rapidr3d](https://tiktok.com/@rapidr3d)
+
 ## Contributing
 
 Pull requests welcome! Areas that need work:
@@ -272,4 +292,8 @@ Pull requests welcome! Areas that need work:
 
 ## License
 
-MIT License
+Copyright (c) 2026 GmhF3NiX. All rights reserved.
+
+This software is provided as-is for personal use. You may use and install this tool on your own 3D printers. **Modification, redistribution, or commercial use of this code is not permitted without explicit written permission from the author.**
+
+Use at your own risk. The author assumes no responsibility for any damage to hardware or software.
