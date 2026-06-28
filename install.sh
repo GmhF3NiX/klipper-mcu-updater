@@ -194,7 +194,7 @@ if [ "$INSTALL_MACROS" = "yes" ] || [ "$INSTALL_MACROS" = "y" ]; then
     echo " Mainsail setup:"
     echo "   1. Add to printer.cfg:  [include mcu_updater.cfg]"
     echo "   2. Restart Klipper"
-    echo "   3. Macro buttons: MCU_SCAN / MCU_UPDATE_ALL / MCU_BACKUP"
+    echo "   3. Macro buttons: MCU_SCAN / MCU_BACKUP"
     echo ""
 fi
 
@@ -204,3 +204,9 @@ echo " any damage to hardware or software."
 echo ""
 echo "============================================"
 echo ""
+
+# Run initial scan
+echo ""
+echo "Running initial MCU scan..."
+echo ""
+python3 "$INSTALL_DIR/klipper_mcu_updater.py" scan
