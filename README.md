@@ -252,8 +252,12 @@ After installation, these macro buttons appear in Mainsail:
 | Button | Action |
 |---|---|
 | **MCU_SCAN** | Scan and display all MCUs with versions |
-| **MCU_UPDATE_ALL** | Update all MCU firmware |
 | **MCU_BACKUP** | Create configuration backup |
+
+> **Note:** Firmware updates are **only available via SSH terminal**, not from Mainsail. The update process stops and restarts Klipper, which cannot be done reliably from within Mainsail. Use:
+> ```bash
+> python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update
+> ```
 
 ## How It Works
 
