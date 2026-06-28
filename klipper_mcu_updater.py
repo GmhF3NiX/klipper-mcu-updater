@@ -1240,18 +1240,34 @@ class KlipperMCUUpdater:
             cprint(f"  {mcu.name} flashed via USB (Katapult)", "green")
             return True
 
-        # Fallback: use make flash (works without Katapult via STM32 DFU reboot)
+        # Fallback 1: make flash (USB DFU reboot)
         cprint(f"  Katapult flash failed, trying make flash...", "yellow")
         result = run_cmd(
             f"cd {KLIPPER_DIR} && make flash FLASH_DEVICE={mcu.serial_path} 2>&1",
             timeout=120
         )
-
         if result.returncode == 0 and "error" not in (result.stdout or "").lower():
             cprint(f"  {mcu.name} flashed via USB (make flash)", "green")
             return True
 
-        cprint(f"  Flash failed: {(result.stdout or '')[-200:]}", "red")
+        # Fallback 2: make serialflash (UART bootloader)
+        cprint(f"  make flash failed, trying serialflash...", "yellow")
+        result = run_cmd(
+            f"cd {KLIPPER_DIR} && make serialflash FLASH_DEVICE={mcu.serial_path} 2>&1",
+            timeout=120
+        )
+        if result.returncode == 0 and "error" not in (result.stdout or "").lower():
+            cprint(f"  {mcu.name} flashed via USB (serialflash)", "green")
+            return True
+
+        # All methods failed
+        cprint(f"  All flash methods failed for {mcu.name}!", "red")
+        cprint(f"  This board likely needs Katapult bootloader installed first.", "yellow")
+        cprint(f"  To install Katapult:", "yellow")
+        cprint(f"    1. Hold BOOT button on the board", "cyan")
+        cprint(f"    2. Press RESET, wait 5 sec, release BOOT", "cyan")
+        cprint(f"    3. Run: python3 {sys.argv[0]} update --target {mcu.name}", "cyan")
+        cprint(f"    (The script will detect DFU mode and offer to install Katapult)", "cyan")
         return False
 
     # ========== UPDATE WORKFLOW ==========
