@@ -23,16 +23,16 @@
 ```
 === Scanning for Klipper MCUs ===
 
-[1/4] Parsing printer configuration...
+[1/5] Parsing printer configuration...
   Found MCU 'mcu' (can)
   Found MCU 'rpi' (linux)
   Found MCU 'EBB' (can)
   Found MCU 'cartographer' (can)
   Found Cartographer/Scanner 'cartographer' (linked to [mcu cartographer])
-[2/4] Scanning CAN bus...
-[3/4] Scanning USB devices...
+[2/5] Scanning CAN bus...
+[3/5] Scanning USB devices...
   USB: Bus 001 Device 004: ID 1d50:606f OpenMoko, Inc. Geschwister Schneider CAN adapter
-[4/4] Reading Klipper log for MCU details...
+[4/5] Reading Klipper log for MCU details...
   Querying Moonraker for live MCU versions...
   mcu: v0.13.0-700-gd6ea62542
   rpi: v0.13.0-700-gd6ea62542
@@ -86,8 +86,16 @@
     Katapult:        INSTALLED
     Status:          NEEDS UPDATE
 
+[5/5] Scanning USB webcams...
+  /dev/video0: Logitech C920 HD Pro (1920x1080)
+  /dev/video2: USB Camera (1280x720)
+
 ============================================================
+
+The scan output is shown in the **Mainsail console** when you press the **MCU_SCAN** macro button, or in your SSH terminal when running the scan command.
 ```
+
+> **Where to see the output:** When using the MCU_SCAN macro in Mainsail, the results appear in the **Mainsail console** (bottom of the dashboard). Via SSH, the output is shown directly in your terminal.
 
 ## Installation Example
 
