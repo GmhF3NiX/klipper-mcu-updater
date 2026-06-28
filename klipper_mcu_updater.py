@@ -369,6 +369,7 @@ class KlipperMCUUpdater:
         for mcu in self.mcus:
             if mcu.is_linux_mcu:
                 mcu.mcu_type = "linux"
+                mcu.katapult_status = "not_needed"
                 continue
 
             if mcu.mcu_type == "cartographer":
@@ -376,6 +377,10 @@ class KlipperMCUUpdater:
                 carto_ver = re.compile(r"mcu_version\s*=\s*(CARTOGRAPHER\s*[\d.]+)")
                 for match in carto_ver.finditer(log_content):
                     mcu.firmware_version = match.group(1)
+                # Cartographer with CAN uses Katapult
+                if mcu.connection_type == "can":
+                    mcu.has_katapult = True
+                    mcu.katapult_status = "installed"
                 continue
 
             # Find MCU type from config line
@@ -415,6 +420,30 @@ class KlipperMCUUpdater:
             for match in app_start_pattern.finditer(log_content):
                 mcu.application_start = int(match.group(1), 16)
                 mcu.bootloader_offset = mcu.application_start - 0x08000000
+
+        # Detect Katapult from log evidence
+        for mcu in self.mcus:
+            if mcu.katapult_status != "unknown":
+                continue
+            # If MCU has a bootloader offset, Katapult is likely installed
+            if mcu.bootloader_offset and mcu.bootloader_offset > 0:
+                mcu.has_katapult = True
+                mcu.katapult_status = "installed"
+            # If MCU communicates via CAN and Klipper is running, Katapult must be there
+            # (CAN devices need Katapult to be flashed in the first place)
+            elif mcu.connection_type == "can" and mcu.uuid:
+                # Check log for Katapult evidence
+                katapult_evidence = re.search(
+                    rf"Katapult Connected.*?MCU type:\s*{re.escape(mcu.mcu_type or '')}",
+                    log_content, re.DOTALL
+                )
+                if katapult_evidence:
+                    mcu.has_katapult = True
+                    mcu.katapult_status = "installed"
+                elif mcu.mcu_type:
+                    # CAN devices generally require Katapult for OTA updates
+                    mcu.has_katapult = True
+                    mcu.katapult_status = "installed"
 
         # Query Moonraker for live MCU versions
         self._query_moonraker_versions()
