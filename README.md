@@ -176,8 +176,11 @@ Mainsail macros created: ~/printer_data/config/mcu_updater.cfg
 
 - **Auto-Detection** - Scans CAN bus, USB devices, and Klipper config to find all MCUs
 - **Version Check** - Compares MCU firmware version with Klipper host version
-- **Backup** - Creates timestamped backups of config and MCU info before updates
+- **Mandatory Backup** - Automatic backup before every update (cannot be skipped)
+- **Rollback/Restore** - If anything breaks, restore configs + Klipper version + all MCU firmware with one command
+- **Katapult Check** - Verifies Katapult bootloader is installed, offers to flash it if missing
 - **Universal** - Works with any STM32-based board (Octopus, Spider, EBB, SHT, etc.)
+- **Cartographer/Scanner Support** - Detects and updates Cartographer probes
 - **Mainsail Integration** - Macro buttons for one-click updates from the web UI
 - **Selective Updates** - Update all MCUs at once or pick individual targets
 
@@ -223,17 +226,23 @@ curl -s https://raw.githubusercontent.com/GmhF3NiX/klipper-mcu-updater/main/inst
 # Scan all MCUs
 python3 ~/klipper-mcu-updater/klipper_mcu_updater.py scan
 
-# Update all MCUs
+# Update all MCUs (automatic backup is created first)
 python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update
 
 # Update specific MCU
 python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update --target EBB
 
-# Update without backup
-python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update --no-backup
-
 # Create backup only
 python3 ~/klipper-mcu-updater/klipper_mcu_updater.py backup
+
+# List available backups
+python3 ~/klipper-mcu-updater/klipper_mcu_updater.py list-backups
+
+# Restore from latest backup (rollback)
+python3 ~/klipper-mcu-updater/klipper_mcu_updater.py restore
+
+# Restore from specific backup
+python3 ~/klipper-mcu-updater/klipper_mcu_updater.py restore --backup backup_20260628_012345
 ```
 
 ### Mainsail
@@ -253,6 +262,31 @@ After installation, these macro buttons appear in Mainsail:
 3. **Build** - Generates correct Klipper `.config` and runs `make` for each MCU
 4. **Flash** - Uses Katapult's `flash_can.py` to flash via CAN or USB
 5. **Verify** - Restarts Klipper and confirms connectivity
+
+## Rollback / Restore
+
+Every update automatically creates a full backup **before** any changes are made. If anything goes wrong:
+
+```bash
+# Restore everything to the state before the last update
+python3 ~/klipper-mcu-updater/klipper_mcu_updater.py restore
+```
+
+The restore process will:
+1. Restore all printer config files (printer.cfg, scanner.cfg, macros.cfg, etc.)
+2. Checkout the exact Klipper version (git commit) from before the update
+3. Rebuild firmware for each MCU with the original build configs
+4. Reflash all MCUs via Katapult
+5. Restart Klipper
+
+You can also list and choose from older backups:
+```bash
+# Show all available backups
+python3 ~/klipper-mcu-updater/klipper_mcu_updater.py list-backups
+
+# Restore from a specific backup
+python3 ~/klipper-mcu-updater/klipper_mcu_updater.py restore --backup backup_20260628_012345
+```
 
 ## Important Notes
 
