@@ -1,0 +1,767 @@
+#!/usr/bin/env python3
+"""
+Klipper MCU Updater - Universal firmware update tool for Klipper 3D printers.
+
+Automatically detects MCUs, checks firmware versions, builds and flashes
+firmware via Katapult bootloader.
+
+Requirements:
+    - Klipper installed at ~/klipper
+    - Katapult installed at ~/katapult
+    - Katapult bootloader on all target MCUs
+    - Python 3.7+
+
+Usage:
+    python3 klipper_mcu_updater.py scan          # Scan and show all MCUs
+    python3 klipper_mcu_updater.py update         # Update all MCUs
+    python3 klipper_mcu_updater.py update mcu     # Update main MCU only
+    python3 klipper_mcu_updater.py update ebb     # Update specific MCU
+    python3 klipper_mcu_updater.py backup         # Backup current configs
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+
+KLIPPER_DIR = Path.home() / "klipper"
+KATAPULT_DIR = Path.home() / "katapult"
+PRINTER_DATA = Path.home() / "printer_data"
+CONFIG_DIR = PRINTER_DATA / "config"
+BACKUP_DIR = PRINTER_DATA / "config_backups"
+MOONRAKER_URL = "http://localhost:7125"
+
+COLORS = {
+    "red": "\033[0;31m",
+    "green": "\033[0;32m",
+    "yellow": "\033[1;33m",
+    "blue": "\033[0;34m",
+    "cyan": "\033[0;36m",
+    "bold": "\033[1m",
+    "reset": "\033[0m",
+}
+
+# Known STM32 MCU configs for Klipper menuconfig
+MCU_CONFIGS = {
+    "stm32f103xx": {
+        "arch": "CONFIG_MACH_STM32=y",
+        "mcu": "CONFIG_MACH_STM32F103=y",
+        "clock_options": ["8M", "12M", "internal"],
+    },
+    "stm32f401xx": {
+        "arch": "CONFIG_MACH_STM32=y",
+        "mcu": "CONFIG_MACH_STM32F401=y",
+        "clock_options": ["8M", "12M", "25M"],
+    },
+    "stm32f405xx": {
+        "arch": "CONFIG_MACH_STM32=y",
+        "mcu": "CONFIG_MACH_STM32F405=y",
+        "clock_options": ["8M", "12M"],
+    },
+    "stm32f407xx": {
+        "arch": "CONFIG_MACH_STM32=y",
+        "mcu": "CONFIG_MACH_STM32F407=y",
+        "clock_options": ["8M", "12M"],
+    },
+    "stm32f429xx": {
+        "arch": "CONFIG_MACH_STM32=y",
+        "mcu": "CONFIG_MACH_STM32F429=y",
+        "clock_options": ["8M", "12M", "25M"],
+    },
+    "stm32f446xx": {
+        "arch": "CONFIG_MACH_STM32=y",
+        "mcu": "CONFIG_MACH_STM32F446=y",
+        "clock_options": ["8M", "12M"],
+    },
+    "stm32g0b1xx": {
+        "arch": "CONFIG_MACH_STM32=y",
+        "mcu": "CONFIG_MACH_STM32G0B1=y",
+        "clock_options": ["8M"],
+    },
+    "stm32h723xx": {
+        "arch": "CONFIG_MACH_STM32=y",
+        "mcu": "CONFIG_MACH_STM32H723=y",
+        "clock_options": ["25M"],
+    },
+    "stm32h743xx": {
+        "arch": "CONFIG_MACH_STM32=y",
+        "mcu": "CONFIG_MACH_STM32H743=y",
+        "clock_options": ["8M", "25M"],
+    },
+    "rp2040": {
+        "arch": "CONFIG_MACH_RPXXXX=y",
+        "mcu": "CONFIG_MACH_RP2040=y",
+        "clock_options": ["12M"],
+    },
+}
+
+# CAN pin mappings
+CAN_PIN_CONFIGS = {
+    "PA11_PA12": "CONFIG_STM32_CANBUS_PA11_PA12=y",
+    "PB0_PB1": "CONFIG_STM32_MMENU_CANBUS_PB0_PB1=y",
+    "PB8_PB9": "CONFIG_STM32_MMENU_CANBUS_PB8_PB9=y",
+    "PB12_PB13": "CONFIG_STM32_MMENU_CANBUS_PB12_PB13=y",
+    "PD0_PD1": "CONFIG_STM32_CMENU_CANBUS_PD0_PD1=y",
+    "PB5_PB6": "CONFIG_STM32_MMENU_CANBUS_PB5_PB6=y",
+}
+
+# USB-CAN bridge configs
+USBCAN_CONFIGS = {
+    "PA11_PA12": "CONFIG_STM32_USBCANBUS_PA11_PA12=y",
+}
+
+# Bootloader offset configs
+BOOTLOADER_OFFSETS = {
+    0x2000: "CONFIG_STM32_FLASH_START_2000=y",   # 8KiB
+    0x5000: "CONFIG_STM32_FLASH_START_5000=y",   # 20KiB
+    0x7000: "CONFIG_STM32_FLASH_START_7000=y",   # 28KiB
+    0x8000: "CONFIG_STM32_FLASH_START_8000=y",   # 32KiB
+    0x8800: "CONFIG_STM32_FLASH_START_8800=y",   # 34KiB
+    0x10000: "CONFIG_STM32_FLASH_START_10000=y", # 64KiB
+    0x20000: "CONFIG_STM32_FLASH_START_20000=y", # 128KiB
+}
+
+
+def cprint(msg: str, color: str = "reset"):
+    print(f"{COLORS.get(color, '')}{msg}{COLORS['reset']}")
+
+
+def run_cmd(cmd: str, timeout: int = 120, capture: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        cmd, shell=True, capture_output=capture,
+        text=True, timeout=timeout
+    )
+
+
+@dataclass
+class MCUInfo:
+    name: str
+    uuid: Optional[str] = None
+    mcu_type: Optional[str] = None
+    firmware_version: Optional[str] = None
+    connection_type: str = "can"  # can, usb, serial, linux
+    serial_path: Optional[str] = None
+    can_interface: str = "can0"
+    can_speed: int = 1000000
+    can_pins: Optional[str] = None
+    usb_pins: Optional[str] = None
+    is_canbridge: bool = False
+    bootloader_offset: int = 0
+    clock_ref: str = "8M"
+    application_start: Optional[int] = None
+    is_linux_mcu: bool = False
+    config_section: Optional[str] = None
+    extra_configs: list = field(default_factory=list)
+
+
+class KlipperMCUUpdater:
+    def __init__(self):
+        self.mcus: list[MCUInfo] = []
+        self.klipper_version = self._get_klipper_version()
+
+    def _get_klipper_version(self) -> str:
+        result = run_cmd(f"cd {KLIPPER_DIR} && git describe --tags --always --dirty")
+        return result.stdout.strip() if result.returncode == 0 else "unknown"
+
+    # ========== SCANNING ==========
+
+    def scan_all(self) -> list[MCUInfo]:
+        cprint("\n=== Scanning for Klipper MCUs ===\n", "bold")
+        self.mcus = []
+
+        self._scan_printer_config()
+        self._scan_can_bus()
+        self._scan_usb_devices()
+        self._scan_klippy_log()
+
+        return self.mcus
+
+    def _scan_printer_config(self):
+        cprint("[1/4] Parsing printer configuration...", "cyan")
+        config_file = CONFIG_DIR / "printer.cfg"
+        if not config_file.exists():
+            cprint("  printer.cfg not found!", "red")
+            return
+
+        content = config_file.read_text()
+
+        # Find all [include] files and parse them too
+        all_content = content
+        for match in re.finditer(r'\[include\s+(.+?)\]', content):
+            include_path = CONFIG_DIR / match.group(1)
+            if include_path.exists():
+                all_content += "\n" + include_path.read_text()
+
+        # Find all MCU sections
+        mcu_pattern = re.compile(
+            r'\[mcu\s*(\w*)\]\s*\n((?:(?!\[).)*)',
+            re.DOTALL
+        )
+
+        for match in mcu_pattern.finditer(all_content):
+            name = match.group(1) or "mcu"
+            section = match.group(2)
+
+            mcu = MCUInfo(name=name, config_section=f"[mcu {name}]" if name != "mcu" else "[mcu]")
+
+            # Parse connection info
+            uuid_match = re.search(r'^canbus_uuid:\s*(\w+)', section, re.MULTILINE)
+            serial_match = re.search(r'^serial:\s*(.+)', section, re.MULTILINE)
+
+            if uuid_match:
+                mcu.uuid = uuid_match.group(1)
+                mcu.connection_type = "can"
+            elif serial_match:
+                serial_path = serial_match.group(1).strip()
+                mcu.serial_path = serial_path
+                if "/tmp/klipper_host_mcu" in serial_path:
+                    mcu.connection_type = "linux"
+                    mcu.is_linux_mcu = True
+                else:
+                    mcu.connection_type = "usb"
+
+            canbus_if = re.search(r'^canbus_interface:\s*(\w+)', section, re.MULTILINE)
+            if canbus_if:
+                mcu.can_interface = canbus_if.group(1)
+
+            self.mcus.append(mcu)
+            cprint(f"  Found MCU '{name}' ({mcu.connection_type})", "green")
+
+    def _scan_can_bus(self):
+        cprint("[2/4] Scanning CAN bus...", "cyan")
+
+        # Check if can0 exists
+        result = run_cmd("ip -d link show can0 2>/dev/null")
+        if result.returncode != 0:
+            cprint("  No CAN interface found", "yellow")
+            return
+
+        # Get CAN bitrate
+        bitrate_match = re.search(r'bitrate\s+(\d+)', result.stdout)
+        can_speed = int(bitrate_match.group(1)) if bitrate_match else 1000000
+
+        # Query CAN devices via Katapult
+        flash_can = KATAPULT_DIR / "scripts" / "flash_can.py"
+        if flash_can.exists():
+            result = run_cmd(f"python3 {flash_can} -i can0 -q 2>&1")
+            if result.returncode == 0:
+                for match in re.finditer(
+                    r'Detected UUID:\s*(\w+),\s*Application:\s*(\w+)',
+                    result.stdout
+                ):
+                    uuid = match.group(1)
+                    app = match.group(2)
+                    # Update existing MCU info or add new
+                    existing = self._find_mcu_by_uuid(uuid)
+                    if existing:
+                        existing.can_speed = can_speed
+                        cprint(f"  CAN device {uuid} -> {existing.name} ({app})", "green")
+                    else:
+                        mcu = MCUInfo(
+                            name=f"unknown_{uuid[:8]}",
+                            uuid=uuid,
+                            can_speed=can_speed,
+                        )
+                        self.mcus.append(mcu)
+                        cprint(f"  CAN device {uuid} (unmatched, {app})", "yellow")
+
+    def _scan_usb_devices(self):
+        cprint("[3/4] Scanning USB devices...", "cyan")
+        result = run_cmd("ls /dev/serial/by-id/ 2>/dev/null")
+        if result.returncode == 0 and result.stdout.strip():
+            for line in result.stdout.strip().split("\n"):
+                cprint(f"  USB serial: {line.strip()}", "green")
+
+        # Check for CAN adapter
+        result = run_cmd("lsusb 2>/dev/null | grep -i 'can\\|1d50'")
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line.strip():
+                    cprint(f"  USB: {line.strip()}", "green")
+
+    def _scan_klippy_log(self):
+        cprint("[4/4] Reading Klipper log for MCU details...", "cyan")
+        log_file = PRINTER_DATA / "logs" / "klippy.log"
+        if not log_file.exists():
+            cprint("  klippy.log not found", "yellow")
+            return
+
+        # Read log as binary to handle mixed encoding
+        try:
+            log_content = log_file.read_bytes().decode("utf-8", errors="replace")
+        except Exception:
+            cprint("  Could not read klippy.log", "red")
+            return
+
+        # Find MCU config blocks
+        for mcu in self.mcus:
+            if mcu.is_linux_mcu:
+                mcu.mcu_type = "linux"
+                continue
+
+            search_name = f"MCU '{mcu.name}'"
+            config_pattern = re.compile(
+                rf"{re.escape(search_name)}.*?MCU=(\w+).*?(?:CANBUS_BRIDGE=(\d))?.*?"
+                rf"(?:RESERVE_PINS_CAN=([A-Z0-9,]+))?.*?"
+                rf"(?:RESERVE_PINS_USB=([A-Z0-9,]+))?",
+                re.DOTALL
+            )
+
+            # Simpler approach: find MCU type from config line
+            mcu_config_pattern = re.compile(
+                rf"MCU '{re.escape(mcu.name)}' config:.*?MCU=(\w+)"
+            )
+            for match in mcu_config_pattern.finditer(log_content):
+                mcu.mcu_type = match.group(1)
+
+            # Find CAN bridge status
+            if f"CANBUS_BRIDGE=1" in log_content:
+                bridge_pattern = re.compile(
+                    rf"MCU '{re.escape(mcu.name)}' config:.*?CANBUS_BRIDGE=1"
+                )
+                if bridge_pattern.search(log_content):
+                    mcu.is_canbridge = True
+
+            # Find CAN pins from RESERVE_PINS_CAN
+            can_pins_pattern = re.compile(
+                rf"MCU '{re.escape(mcu.name)}' config:.*?RESERVE_PINS_CAN=([A-Z0-9,]+)"
+            )
+            match = can_pins_pattern.search(log_content)
+            if match:
+                pins = match.group(1)
+                mcu.can_pins = pins.replace(",", "_")
+
+            # Find USB pins
+            usb_pins_pattern = re.compile(
+                rf"MCU '{re.escape(mcu.name)}' config:.*?RESERVE_PINS_USB=([A-Z0-9,]+)"
+            )
+            match = usb_pins_pattern.search(log_content)
+            if match:
+                mcu.usb_pins = match.group(1).replace(",", "_")
+
+            # Find firmware version
+            version_pattern = re.compile(r"Last MCU build version:\s*(v[\d.]+-\d+-g\w+)")
+            for match in version_pattern.finditer(log_content):
+                mcu.firmware_version = match.group(1)
+
+            # Find bootloader offset from Katapult connection
+            app_start_pattern = re.compile(
+                rf"Application Start:\s*(0x[0-9a-fA-F]+)"
+            )
+            for match in app_start_pattern.finditer(log_content):
+                mcu.application_start = int(match.group(1), 16)
+                mcu.bootloader_offset = mcu.application_start - 0x08000000
+
+            if mcu.mcu_type:
+                cprint(f"  {mcu.name}: {mcu.mcu_type} (fw: {mcu.firmware_version or 'unknown'})", "green")
+
+    def _find_mcu_by_uuid(self, uuid: str) -> Optional[MCUInfo]:
+        for mcu in self.mcus:
+            if mcu.uuid == uuid:
+                return mcu
+        return None
+
+    # ========== DISPLAY ==========
+
+    def display_scan_results(self):
+        cprint("\n" + "=" * 60, "bold")
+        cprint(" Detected MCUs", "bold")
+        cprint("=" * 60, "bold")
+
+        for mcu in self.mcus:
+            cprint(f"\n  [{mcu.name}]", "cyan")
+            cprint(f"    MCU Type:        {mcu.mcu_type or 'unknown'}")
+            cprint(f"    Connection:      {mcu.connection_type}")
+            if mcu.uuid:
+                cprint(f"    CAN UUID:        {mcu.uuid}")
+            if mcu.serial_path:
+                cprint(f"    Serial:          {mcu.serial_path}")
+            if mcu.is_canbridge:
+                cprint(f"    CAN Bridge:      Yes", "yellow")
+            if mcu.can_pins:
+                cprint(f"    CAN Pins:        {mcu.can_pins}")
+            if mcu.can_speed:
+                cprint(f"    CAN Speed:       {mcu.can_speed}")
+            if mcu.bootloader_offset:
+                cprint(f"    Boot Offset:     0x{mcu.bootloader_offset:X} ({mcu.bootloader_offset // 1024}KiB)")
+            cprint(f"    FW Version:      {mcu.firmware_version or 'unknown'}")
+            cprint(f"    Klipper Host:    {self.klipper_version}")
+
+            if mcu.firmware_version and self.klipper_version != "unknown":
+                if mcu.firmware_version in self.klipper_version:
+                    cprint(f"    Status:          UP TO DATE", "green")
+                else:
+                    cprint(f"    Status:          NEEDS UPDATE", "red")
+
+        cprint("\n" + "=" * 60 + "\n", "bold")
+
+    # ========== BACKUP ==========
+
+    def create_backup(self) -> str:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = BACKUP_DIR / f"backup_{timestamp}"
+        backup_path.mkdir(parents=True, exist_ok=True)
+
+        cprint(f"\nCreating backup at {backup_path}...", "yellow")
+
+        # Backup config files
+        config_backup = backup_path / "config"
+        if CONFIG_DIR.exists():
+            shutil.copytree(CONFIG_DIR, config_backup, dirs_exist_ok=True)
+            cprint("  Config files backed up", "green")
+
+        # Backup current .config from klipper
+        klipper_config = KLIPPER_DIR / ".config"
+        if klipper_config.exists():
+            shutil.copy2(klipper_config, backup_path / "klipper_dotconfig")
+            cprint("  Klipper build config backed up", "green")
+
+        # Save MCU info
+        mcu_info_file = backup_path / "mcu_info.json"
+        mcu_data = []
+        for mcu in self.mcus:
+            mcu_data.append({
+                "name": mcu.name,
+                "uuid": mcu.uuid,
+                "mcu_type": mcu.mcu_type,
+                "firmware_version": mcu.firmware_version,
+                "connection_type": mcu.connection_type,
+                "can_pins": mcu.can_pins,
+                "is_canbridge": mcu.is_canbridge,
+                "bootloader_offset": mcu.bootloader_offset,
+            })
+        mcu_info_file.write_text(json.dumps(mcu_data, indent=2))
+        cprint("  MCU info saved", "green")
+
+        cprint(f"  Backup complete: {backup_path}", "green")
+        return str(backup_path)
+
+    # ========== BUILDING ==========
+
+    def _generate_klipper_config(self, mcu: MCUInfo) -> list[str]:
+        if mcu.is_linux_mcu:
+            return [
+                "CONFIG_LOW_LEVEL_OPTIONS=y",
+                "CONFIG_MACH_LINUX=y",
+            ]
+
+        if mcu.mcu_type not in MCU_CONFIGS:
+            raise ValueError(f"Unknown MCU type: {mcu.mcu_type}")
+
+        mcu_cfg = MCU_CONFIGS[mcu.mcu_type]
+        lines = [
+            "CONFIG_LOW_LEVEL_OPTIONS=y",
+            mcu_cfg["arch"],
+            mcu_cfg["mcu"],
+            f"CONFIG_STM32_CLOCK_REF_{mcu.clock_ref}=y",
+        ]
+
+        # Bootloader offset
+        if mcu.bootloader_offset and mcu.bootloader_offset in BOOTLOADER_OFFSETS:
+            lines.append(BOOTLOADER_OFFSETS[mcu.bootloader_offset])
+
+        # Communication interface
+        if mcu.is_canbridge and mcu.usb_pins:
+            usb_key = mcu.usb_pins
+            if usb_key in USBCAN_CONFIGS:
+                lines.append(USBCAN_CONFIGS[usb_key])
+
+        if mcu.can_pins:
+            can_key = mcu.can_pins
+            if can_key in CAN_PIN_CONFIGS:
+                lines.append(CAN_PIN_CONFIGS[can_key])
+            # For non-bridge CAN-only devices, use the MMENU variant
+            for key, value in CAN_PIN_CONFIGS.items():
+                if can_key == key:
+                    lines.append(value)
+                    break
+
+        if mcu.can_speed:
+            lines.append(f"CONFIG_CANBUS_FREQUENCY={mcu.can_speed}")
+
+        return list(dict.fromkeys(lines))  # Remove duplicates
+
+    def build_firmware(self, mcu: MCUInfo) -> bool:
+        cprint(f"\nBuilding firmware for '{mcu.name}' ({mcu.mcu_type})...", "yellow")
+
+        if mcu.mcu_type not in MCU_CONFIGS and not mcu.is_linux_mcu:
+            cprint(f"  Unknown MCU type: {mcu.mcu_type}", "red")
+            return False
+
+        try:
+            config_lines = self._generate_klipper_config(mcu)
+        except ValueError as e:
+            cprint(f"  {e}", "red")
+            return False
+
+        # Write .config
+        config_content = "\n".join(config_lines) + "\n"
+        config_path = KLIPPER_DIR / ".config"
+        config_path.write_text(config_content)
+
+        # Build
+        cmds = [
+            f"cd {KLIPPER_DIR} && make olddefconfig 2>&1 | tail -1",
+            f"cd {KLIPPER_DIR} && make clean 2>&1 > /dev/null",
+            f"cd {KLIPPER_DIR} && make -j$(nproc) 2>&1 | tail -3",
+        ]
+
+        for cmd in cmds:
+            result = run_cmd(cmd, timeout=180)
+            if result.returncode != 0:
+                cprint(f"  Build failed: {result.stderr}", "red")
+                return False
+
+        cprint(f"  Build successful", "green")
+        return True
+
+    # ========== FLASHING ==========
+
+    def flash_mcu(self, mcu: MCUInfo) -> bool:
+        cprint(f"\nFlashing '{mcu.name}'...", "yellow")
+
+        if mcu.is_linux_mcu:
+            return self._flash_linux_mcu()
+        elif mcu.connection_type == "can" and mcu.uuid:
+            return self._flash_via_katapult_can(mcu)
+        elif mcu.connection_type == "usb" and mcu.serial_path:
+            return self._flash_via_katapult_usb(mcu)
+        else:
+            cprint(f"  No supported flash method for {mcu.name}", "red")
+            return False
+
+    def _flash_linux_mcu(self) -> bool:
+        result = run_cmd(f"cd {KLIPPER_DIR} && sudo make flash 2>&1", timeout=60)
+        if "Installing" in (result.stdout or ""):
+            cprint("  RPi MCU flashed", "green")
+            return True
+        cprint(f"  RPi MCU flash failed", "red")
+        return False
+
+    def _flash_via_katapult_can(self, mcu: MCUInfo) -> bool:
+        flash_script = KATAPULT_DIR / "scripts" / "flash_can.py"
+        firmware = KLIPPER_DIR / "out" / "klipper.bin"
+
+        if not flash_script.exists():
+            cprint("  flash_can.py not found!", "red")
+            return False
+
+        cmd = (
+            f"python3 {flash_script} -i {mcu.can_interface} "
+            f"-u {mcu.uuid} -f {firmware}"
+        )
+        result = run_cmd(cmd, timeout=120)
+
+        if "Programming Complete" in (result.stdout or ""):
+            cprint(f"  {mcu.name} flashed via CAN", "green")
+            return True
+
+        cprint(f"  Flash failed: {result.stdout}\n{result.stderr}", "red")
+        return False
+
+    def _flash_via_katapult_usb(self, mcu: MCUInfo) -> bool:
+        flash_script = KATAPULT_DIR / "scripts" / "flash_can.py"
+        firmware = KLIPPER_DIR / "out" / "klipper.bin"
+
+        cmd = f"python3 {flash_script} -d {mcu.serial_path} -f {firmware}"
+        result = run_cmd(cmd, timeout=120)
+
+        if "Programming Complete" in (result.stdout or ""):
+            cprint(f"  {mcu.name} flashed via USB", "green")
+            return True
+
+        cprint(f"  Flash failed", "red")
+        return False
+
+    # ========== UPDATE WORKFLOW ==========
+
+    def stop_klipper(self):
+        cprint("\nStopping Klipper...", "yellow")
+        run_cmd("sudo systemctl stop klipper", timeout=10)
+        time.sleep(2)
+        cprint("  Klipper stopped", "green")
+
+    def start_klipper(self):
+        cprint("\nStarting Klipper...", "yellow")
+        run_cmd("sudo systemctl start klipper", timeout=10)
+        time.sleep(5)
+        cprint("  Klipper started", "green")
+
+    def restart_can_interface(self, interface: str = "can0"):
+        cprint(f"  Restarting {interface}...", "yellow")
+        run_cmd(f"sudo ip link set {interface} down 2>/dev/null")
+        time.sleep(1)
+        run_cmd(f"sudo ip link set {interface} up type can bitrate 1000000 2>/dev/null")
+        time.sleep(3)
+
+    def update_mcu(self, mcu: MCUInfo, backup: bool = True) -> bool:
+        cprint(f"\n{'=' * 50}", "bold")
+        cprint(f" Updating: {mcu.name} ({mcu.mcu_type})", "bold")
+        cprint(f"{'=' * 50}", "bold")
+
+        if not self.build_firmware(mcu):
+            return False
+
+        if mcu.is_canbridge:
+            self.stop_klipper()
+
+        success = self.flash_mcu(mcu)
+
+        if mcu.is_canbridge:
+            self.restart_can_interface(mcu.can_interface)
+            time.sleep(3)
+
+        return success
+
+    def update_all(self, backup: bool = True):
+        cprint("\n" + "=" * 50, "bold")
+        cprint(" Updating ALL MCUs", "bold")
+        cprint("=" * 50, "bold")
+
+        if backup:
+            self.create_backup()
+
+        # Sort: Linux MCU first, then CAN bridge, then others
+        sorted_mcus = sorted(self.mcus, key=lambda m: (
+            0 if m.is_linux_mcu else (1 if m.is_canbridge else 2)
+        ))
+
+        self.stop_klipper()
+
+        results = {}
+        for mcu in sorted_mcus:
+            if mcu.mcu_type and mcu.mcu_type != "unknown":
+                success = self.update_mcu(mcu, backup=False)
+                results[mcu.name] = success
+                if mcu.is_canbridge:
+                    self.restart_can_interface()
+            else:
+                cprint(f"\n  Skipping {mcu.name}: unknown MCU type", "yellow")
+                results[mcu.name] = None
+
+        self.start_klipper()
+
+        # Summary
+        cprint("\n" + "=" * 50, "bold")
+        cprint(" Update Summary", "bold")
+        cprint("=" * 50, "bold")
+        for name, success in results.items():
+            if success is True:
+                cprint(f"  {name}: OK", "green")
+            elif success is False:
+                cprint(f"  {name}: FAILED", "red")
+            else:
+                cprint(f"  {name}: SKIPPED", "yellow")
+        cprint("")
+
+    def update_single(self, target_name: str, backup: bool = True):
+        mcu = None
+        for m in self.mcus:
+            if m.name.lower() == target_name.lower():
+                mcu = m
+                break
+
+        if not mcu:
+            cprint(f"MCU '{target_name}' not found. Available:", "red")
+            for m in self.mcus:
+                cprint(f"  - {m.name}")
+            return
+
+        if backup:
+            self.create_backup()
+
+        need_klipper_restart = not mcu.is_linux_mcu
+        if need_klipper_restart:
+            self.stop_klipper()
+
+        success = self.update_mcu(mcu, backup=False)
+
+        if mcu.is_canbridge:
+            self.restart_can_interface()
+
+        if need_klipper_restart:
+            self.start_klipper()
+
+        if success:
+            cprint(f"\n{mcu.name} updated successfully!", "green")
+        else:
+            cprint(f"\n{mcu.name} update FAILED!", "red")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Klipper MCU Firmware Updater",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s scan                    Show all detected MCUs
+  %(prog)s update                  Update all MCUs
+  %(prog)s update --target mcu     Update main MCU only
+  %(prog)s update --target EBB     Update EBB board only
+  %(prog)s update --no-backup      Skip backup before update
+  %(prog)s backup                  Create config backup only
+        """
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+
+    # scan
+    subparsers.add_parser("scan", help="Scan and display all MCUs")
+
+    # update
+    update_parser = subparsers.add_parser("update", help="Update MCU firmware")
+    update_parser.add_argument("--target", "-t", help="Specific MCU to update (by name)")
+    update_parser.add_argument("--no-backup", action="store_true", help="Skip backup")
+
+    # backup
+    subparsers.add_parser("backup", help="Create configuration backup")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return
+
+    # Check prerequisites
+    if not KLIPPER_DIR.exists():
+        cprint("Klipper not found at ~/klipper", "red")
+        sys.exit(1)
+
+    if not KATAPULT_DIR.exists():
+        cprint("Katapult not found at ~/katapult", "red")
+        cprint("Katapult bootloader is required on all target MCUs.", "yellow")
+        sys.exit(1)
+
+    updater = KlipperMCUUpdater()
+    updater.scan_all()
+
+    if args.command == "scan":
+        updater.display_scan_results()
+
+    elif args.command == "backup":
+        updater.create_backup()
+
+    elif args.command == "update":
+        if not updater.mcus:
+            cprint("No MCUs found!", "red")
+            sys.exit(1)
+
+        updater.display_scan_results()
+
+        if args.target:
+            updater.update_single(args.target, backup=not args.no_backup)
+        else:
+            updater.update_all(backup=not args.no_backup)
+
+
+if __name__ == "__main__":
+    main()
