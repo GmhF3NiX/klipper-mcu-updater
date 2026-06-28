@@ -156,11 +156,6 @@ command: python3 $INSTALL_DIR/klipper_mcu_updater.py scan
 timeout: 30.
 verbose: True
 
-[gcode_shell_command mcu_update_all]
-command: python3 $INSTALL_DIR/klipper_mcu_updater.py update
-timeout: 600.
-verbose: True
-
 [gcode_shell_command mcu_backup]
 command: python3 $INSTALL_DIR/klipper_mcu_updater.py backup
 timeout: 60.
@@ -170,11 +165,6 @@ verbose: True
 description: Scan all connected MCUs and show firmware versions
 gcode:
     RUN_SHELL_COMMAND CMD=mcu_scan
-
-[gcode_macro MCU_UPDATE_ALL]
-description: Update firmware on ALL MCUs (requires Katapult)
-gcode:
-    RUN_SHELL_COMMAND CMD=mcu_update_all
 
 [gcode_macro MCU_BACKUP]
 description: Backup current printer configuration
