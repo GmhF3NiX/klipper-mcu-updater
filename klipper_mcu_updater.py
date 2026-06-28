@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """
 Klipper MCU Updater - Universal firmware update tool for Klipper 3D printers.
+by GmhF3NiX - https://github.com/GmhF3NiX/klipper-mcu-updater
+
+DISCLAIMER:
+    USE AT YOUR OWN RISK! This tool flashes firmware to your 3D printer MCUs.
+    Incorrect firmware can render your printer inoperable. The author assumes
+    NO responsibility for any damage to hardware, software, or any other
+    losses resulting from the use of this tool.
 
 Automatically detects MCUs, checks firmware versions, builds and flashes
 firmware via Katapult bootloader.

@@ -2,6 +2,9 @@
 
 Universal firmware update tool for Klipper 3D printers. Automatically detects MCUs, checks firmware versions, creates backups, and flashes firmware via Katapult bootloader.
 
+> **DISCLAIMER: USE AT YOUR OWN RISK!**
+> This tool flashes firmware to your 3D printer MCUs. Incorrect firmware can render your printer inoperable. The author assumes **NO responsibility** for any damage to hardware, software, or any other losses resulting from the use of this tool. By installing and using this tool, you acknowledge that you understand the risks involved and accept full responsibility.
+
 ## Features
 
 - **Auto-Detection** - Scans CAN bus, USB devices, and Klipper config to find all MCUs
