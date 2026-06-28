@@ -187,16 +187,18 @@ class KlipperMCUUpdater:
     def scan_all(self) -> list[MCUInfo]:
         cprint("\n=== Scanning for Klipper MCUs ===\n", "bold")
         self.mcus = []
+        self.webcams = []
 
         self._scan_printer_config()
         self._scan_can_bus()
         self._scan_usb_devices()
         self._scan_klippy_log()
+        self._scan_webcams()
 
         return self.mcus
 
     def _scan_printer_config(self):
-        cprint("[1/4] Parsing printer configuration...", "cyan")
+        cprint("[1/5] Parsing printer configuration...", "cyan")
         config_file = CONFIG_DIR / "printer.cfg"
         if not config_file.exists():
             cprint("  printer.cfg not found!", "red")
@@ -294,7 +296,7 @@ class KlipperMCUUpdater:
                 cprint(f"  Found Cartographer/Scanner '{mcu_name}' ({mcu.connection_type})", "green")
 
     def _scan_can_bus(self):
-        cprint("[2/4] Scanning CAN bus...", "cyan")
+        cprint("[2/5] Scanning CAN bus...", "cyan")
 
         # Check if can0 exists
         result = run_cmd("ip -d link show can0 2>/dev/null")
@@ -338,7 +340,7 @@ class KlipperMCUUpdater:
                         cprint(f"  CAN device {uuid} (unmatched, {app}, Katapult: YES)", "yellow")
 
     def _scan_usb_devices(self):
-        cprint("[3/4] Scanning USB devices...", "cyan")
+        cprint("[3/5] Scanning USB devices...", "cyan")
         result = run_cmd("ls /dev/serial/by-id/ 2>/dev/null")
         if result.returncode == 0 and result.stdout.strip():
             for line in result.stdout.strip().split("\n"):
@@ -352,7 +354,7 @@ class KlipperMCUUpdater:
                     cprint(f"  USB: {line.strip()}", "green")
 
     def _scan_klippy_log(self):
-        cprint("[4/4] Reading Klipper log for MCU details...", "cyan")
+        cprint("[4/5] Reading Klipper log for MCU details...", "cyan")
         log_file = PRINTER_DATA / "logs" / "klippy.log"
         if not log_file.exists():
             cprint("  klippy.log not found", "yellow")
@@ -499,6 +501,46 @@ class KlipperMCUUpdater:
         except Exception as e:
             cprint(f"  Moonraker query failed: {e}", "yellow")
             cprint("  Falling back to log-based version detection", "yellow")
+
+    def _scan_webcams(self):
+        cprint("[5/5] Scanning USB webcams...", "cyan")
+        # Try v4l2-ctl first (most reliable)
+        result = run_cmd("v4l2-ctl --list-devices 2>/dev/null")
+        if result.returncode == 0 and result.stdout.strip():
+            current_name = ""
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                if line.endswith(":"):
+                    current_name = line[:-1].strip()
+                elif line.startswith("/dev/video"):
+                    device = line.strip()
+                    # Get resolution info
+                    res_result = run_cmd(
+                        f"v4l2-ctl -d {device} --list-formats-ext 2>/dev/null | "
+                        f"grep -oP '\\d+x\\d+' | sort -t'x' -k1 -nr | head -1"
+                    )
+                    max_res = res_result.stdout.strip() if res_result.returncode == 0 else ""
+                    cam_info = {
+                        "name": current_name,
+                        "device": device,
+                        "max_resolution": max_res,
+                    }
+                    self.webcams.append(cam_info)
+                    res_str = f" ({max_res})" if max_res else ""
+                    cprint(f"  {device}: {current_name}{res_str}", "green")
+        else:
+            # Fallback: check /dev/video* devices
+            result = run_cmd("ls /dev/video* 2>/dev/null")
+            if result.returncode == 0 and result.stdout.strip():
+                for device in result.stdout.strip().split("\n"):
+                    device = device.strip()
+                    cam_info = {"name": "Unknown camera", "device": device, "max_resolution": ""}
+                    self.webcams.append(cam_info)
+                    cprint(f"  {device}: Unknown camera", "yellow")
+            else:
+                cprint("  No webcams found", "yellow")
 
     def _find_mcu_by_uuid(self, uuid: str) -> Optional[MCUInfo]:
         for mcu in self.mcus:
@@ -729,6 +771,15 @@ class KlipperMCUUpdater:
                     cprint(f"    Status:          UP TO DATE", "green")
                 else:
                     cprint(f"    Status:          NEEDS UPDATE", "red")
+
+        # Webcams
+        if hasattr(self, 'webcams') and self.webcams:
+            cprint("\n" + "-" * 60, "bold")
+            cprint(" USB Webcams", "bold")
+            cprint("-" * 60, "bold")
+            for cam in self.webcams:
+                res_str = f" | Max: {cam['max_resolution']}" if cam.get('max_resolution') else ""
+                cprint(f"  {cam['device']}: {cam['name']}{res_str}", "cyan")
 
         cprint("\n" + "=" * 60 + "\n", "bold")
 
