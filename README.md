@@ -201,6 +201,19 @@ Any board running Klipper with Katapult bootloader, including:
 | Toolheads | BTT EBB36/42, SHT36/42, Mellow Fly SB2040 |
 | Host MCU | Raspberry Pi, CB1, Orange Pi |
 
+### Supported Connection Types
+
+The tool automatically detects how each MCU is connected and generates the correct firmware build config:
+
+| Connection | Detection | Build Config | Flash Method |
+|---|---|---|---|
+| **CAN bus** | `canbus_uuid` in config | CAN pins + speed | `flash_can.py -u UUID` |
+| **USB** | `serial:` path in config | USB (PA11/PA12) | `flash_can.py -d /dev/serial/...` |
+| **USB-CAN Bridge** | Both USB + CAN detected | USB + CAN pins | `flash_can.py -u UUID` |
+| **Linux (RPi)** | `/tmp/klipper_host_mcu` | Linux build | `make flash` |
+
+> Boards can be connected via CAN or USB — the tool handles both automatically. No manual configuration needed.
+
 ### Supported Probes
 
 Probes with their own MCU are detected automatically and flashed with pre-built firmware from their respective repositories:
