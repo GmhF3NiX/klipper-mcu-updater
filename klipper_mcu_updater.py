@@ -676,12 +676,26 @@ class KlipperMCUUpdater:
             f"CONFIG_STM32_CLOCK_REF_{mcu.clock_ref}=y",
         ]
 
-        # CAN communication for Katapult
-        if mcu.can_pins and mcu.can_pins in CAN_PIN_CONFIGS:
+        # Communication interface for Katapult (match the MCU's connection type)
+        if mcu.connection_type == "usb" or (mcu.connection_type == "usb" and not mcu.can_pins):
+            # USB mode - Katapult via USB serial
+            config_lines.append("CONFIG_STM32_USB_PA11_PA12=y")
+            cprint("  Mode: USB", "cyan")
+        elif mcu.is_canbridge and mcu.can_pins:
+            # USB-CAN bridge
+            config_lines.append("CONFIG_STM32_USB_PA11_PA12=y")
+            if mcu.can_pins in CAN_PIN_CONFIGS:
+                config_lines.append(CAN_PIN_CONFIGS[mcu.can_pins])
+            if mcu.can_speed:
+                config_lines.append(f"CONFIG_CANBUS_FREQUENCY={mcu.can_speed}")
+            cprint("  Mode: USB-CAN Bridge", "cyan")
+        elif mcu.can_pins and mcu.can_pins in CAN_PIN_CONFIGS:
+            # CAN mode
             config_lines.append(CAN_PIN_CONFIGS[mcu.can_pins])
-        if mcu.can_speed:
-            config_lines.append(f"CONFIG_CANBUS_FREQUENCY={mcu.can_speed}")
-        config_lines.append("CONFIG_CANBUS_FILTER=y")
+            if mcu.can_speed:
+                config_lines.append(f"CONFIG_CANBUS_FREQUENCY={mcu.can_speed}")
+            config_lines.append("CONFIG_CANBUS_FILTER=y")
+            cprint("  Mode: CAN", "cyan")
 
         # Bootloader offset (8KiB default for most boards)
         if mcu.bootloader_offset and mcu.bootloader_offset in BOOTLOADER_OFFSETS:
