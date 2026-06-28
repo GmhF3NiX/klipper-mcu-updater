@@ -125,17 +125,17 @@ chmod +x "$INSTALL_DIR/klipper_mcu_updater.py"
 # Create wrapper scripts
 cat > "$INSTALL_DIR/scan.sh" << 'EOF'
 #!/bin/bash
-python3 ~/klipper-mcu-updater/klipper_mcu_updater.py scan
+python3 $INSTALL_DIR/klipper_mcu_updater.py scan
 EOF
 
 cat > "$INSTALL_DIR/update_all.sh" << 'EOF'
 #!/bin/bash
-python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update
+python3 $INSTALL_DIR/klipper_mcu_updater.py update
 EOF
 
 cat > "$INSTALL_DIR/backup.sh" << 'EOF'
 #!/bin/bash
-python3 ~/klipper-mcu-updater/klipper_mcu_updater.py backup
+python3 $INSTALL_DIR/klipper_mcu_updater.py backup
 EOF
 
 chmod +x "$INSTALL_DIR"/*.sh
@@ -152,17 +152,17 @@ if [ "$INSTALL_MACROS" = "yes" ] || [ "$INSTALL_MACROS" = "y" ]; then
 # Add to printer.cfg:  [include mcu_updater.cfg]
 
 [gcode_shell_command mcu_scan]
-command: python3 ~/klipper-mcu-updater/klipper_mcu_updater.py scan
+command: python3 $INSTALL_DIR/klipper_mcu_updater.py scan
 timeout: 30.
 verbose: True
 
 [gcode_shell_command mcu_update_all]
-command: python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update
+command: python3 $INSTALL_DIR/klipper_mcu_updater.py update
 timeout: 600.
 verbose: True
 
 [gcode_shell_command mcu_backup]
-command: python3 ~/klipper-mcu-updater/klipper_mcu_updater.py backup
+command: python3 $INSTALL_DIR/klipper_mcu_updater.py backup
 timeout: 60.
 verbose: True
 
@@ -194,10 +194,10 @@ echo ""
 echo " Files installed to: $INSTALL_DIR"
 echo ""
 echo " CLI usage:"
-echo "   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py scan"
-echo "   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update"
-echo "   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py update --target EBB"
-echo "   python3 ~/klipper-mcu-updater/klipper_mcu_updater.py backup"
+echo "   python3 $INSTALL_DIR/klipper_mcu_updater.py scan"
+echo "   python3 $INSTALL_DIR/klipper_mcu_updater.py update"
+echo "   python3 $INSTALL_DIR/klipper_mcu_updater.py update --target EBB"
+echo "   python3 $INSTALL_DIR/klipper_mcu_updater.py backup"
 echo ""
 
 if [ "$INSTALL_MACROS" = "yes" ] || [ "$INSTALL_MACROS" = "y" ]; then
