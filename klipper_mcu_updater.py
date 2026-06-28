@@ -168,6 +168,9 @@ class MCUInfo:
     is_linux_mcu: bool = False
     config_section: Optional[str] = None
     extra_configs: list = field(default_factory=list)
+    has_katapult: bool = False
+    katapult_status: str = "unknown"  # unknown, installed, missing, not_needed
+    can_application: Optional[str] = None  # Klipper, Katapult
 
 
 class KlipperMCUUpdater:
@@ -271,15 +274,21 @@ class KlipperMCUUpdater:
                     existing = self._find_mcu_by_uuid(uuid)
                     if existing:
                         existing.can_speed = can_speed
-                        cprint(f"  CAN device {uuid} -> {existing.name} ({app})", "green")
+                        existing.can_application = app
+                        existing.has_katapult = True
+                        existing.katapult_status = "installed"
+                        cprint(f"  CAN device {uuid} -> {existing.name} ({app}, Katapult: YES)", "green")
                     else:
                         mcu = MCUInfo(
                             name=f"unknown_{uuid[:8]}",
                             uuid=uuid,
                             can_speed=can_speed,
+                            can_application=app,
+                            has_katapult=True,
+                            katapult_status="installed",
                         )
                         self.mcus.append(mcu)
-                        cprint(f"  CAN device {uuid} (unmatched, {app})", "yellow")
+                        cprint(f"  CAN device {uuid} (unmatched, {app}, Katapult: YES)", "yellow")
 
     def _scan_usb_devices(self):
         cprint("[3/4] Scanning USB devices...", "cyan")
@@ -377,6 +386,186 @@ class KlipperMCUUpdater:
                 return mcu
         return None
 
+    # ========== KATAPULT CHECK ==========
+
+    def check_katapult_all(self) -> bool:
+        cprint("\n=== Checking Katapult Bootloader Status ===\n", "bold")
+
+        all_ready = True
+        mcus_without_katapult = []
+
+        for mcu in self.mcus:
+            if mcu.is_linux_mcu:
+                mcu.katapult_status = "not_needed"
+                cprint(f"  {mcu.name}: Linux MCU (Katapult not needed)", "green")
+                continue
+
+            if mcu.has_katapult:
+                cprint(f"  {mcu.name}: Katapult INSTALLED (App: {mcu.can_application})", "green")
+                continue
+
+            # Try to detect Katapult via bootloader jump test
+            if mcu.uuid and mcu.connection_type == "can":
+                detected = self._test_katapult_can(mcu)
+                if detected:
+                    mcu.has_katapult = True
+                    mcu.katapult_status = "installed"
+                    cprint(f"  {mcu.name}: Katapult INSTALLED (verified via jump test)", "green")
+                    continue
+
+            mcu.katapult_status = "missing"
+            mcus_without_katapult.append(mcu)
+            cprint(f"  {mcu.name}: Katapult NOT FOUND", "red")
+            all_ready = False
+
+        if not all_ready:
+            cprint(f"\n  {len(mcus_without_katapult)} MCU(s) without Katapult:", "red")
+            for mcu in mcus_without_katapult:
+                cprint(f"    - {mcu.name} ({mcu.mcu_type or 'unknown'})", "red")
+
+            cprint("\n  Katapult bootloader is REQUIRED for firmware updates.", "yellow")
+            cprint("  Without Katapult, MCUs cannot be flashed over CAN/USB.", "yellow")
+            cprint("  Katapult must be flashed via DFU mode (physical button).\n", "yellow")
+
+            response = input("  Would you like to install Katapult on these MCUs? (yes/no): ").strip().lower()
+            if response in ("yes", "y"):
+                for mcu in mcus_without_katapult:
+                    success = self.install_katapult(mcu)
+                    if not success:
+                        cprint(f"  Failed to install Katapult on {mcu.name}", "red")
+                        cprint("  Update aborted.", "red")
+                        return False
+                return True
+            else:
+                cprint("\n  Update aborted. Katapult is required on all target MCUs.", "red")
+                return False
+
+        cprint("\n  All MCUs have Katapult bootloader. Ready to update!", "green")
+        return True
+
+    def _test_katapult_can(self, mcu: MCUInfo) -> bool:
+        flash_can = KATAPULT_DIR / "scripts" / "flash_can.py"
+        if not flash_can.exists():
+            return False
+
+        result = run_cmd(
+            f"python3 {flash_can} -i {mcu.can_interface} -q 2>&1",
+            timeout=10
+        )
+        if result.returncode == 0 and mcu.uuid and mcu.uuid in (result.stdout or ""):
+            return True
+        return False
+
+    def install_katapult(self, mcu: MCUInfo) -> bool:
+        cprint(f"\n{'=' * 50}", "bold")
+        cprint(f"  Installing Katapult on: {mcu.name}", "bold")
+        cprint(f"{'=' * 50}", "bold")
+
+        if not mcu.mcu_type or mcu.mcu_type not in MCU_CONFIGS:
+            cprint(f"  Unknown MCU type: {mcu.mcu_type}. Cannot build Katapult.", "red")
+            return False
+
+        # Build Katapult
+        cprint("\n  Building Katapult bootloader...", "yellow")
+        mcu_cfg = MCU_CONFIGS[mcu.mcu_type]
+        config_lines = [
+            "CONFIG_LOW_LEVEL_OPTIONS=y",
+            mcu_cfg["arch"],
+            mcu_cfg["mcu"],
+            f"CONFIG_STM32_CLOCK_REF_{mcu.clock_ref}=y",
+        ]
+
+        # CAN communication for Katapult
+        if mcu.can_pins and mcu.can_pins in CAN_PIN_CONFIGS:
+            config_lines.append(CAN_PIN_CONFIGS[mcu.can_pins])
+        if mcu.can_speed:
+            config_lines.append(f"CONFIG_CANBUS_FREQUENCY={mcu.can_speed}")
+        config_lines.append("CONFIG_CANBUS_FILTER=y")
+
+        # Bootloader offset (8KiB default for most boards)
+        if mcu.bootloader_offset and mcu.bootloader_offset in BOOTLOADER_OFFSETS:
+            config_lines.append(BOOTLOADER_OFFSETS[mcu.bootloader_offset])
+        else:
+            config_lines.append("CONFIG_STM32_FLASH_START_2000=y")
+
+        config_content = "\n".join(config_lines) + "\n"
+        katapult_config = KATAPULT_DIR / ".config"
+        katapult_config.write_text(config_content)
+
+        cmds = [
+            f"cd {KATAPULT_DIR} && make olddefconfig 2>&1 | tail -1",
+            f"cd {KATAPULT_DIR} && make clean 2>&1 > /dev/null",
+            f"cd {KATAPULT_DIR} && make -j$(nproc) 2>&1 | tail -3",
+        ]
+
+        for cmd in cmds:
+            result = run_cmd(cmd, timeout=180)
+            if result.returncode != 0:
+                cprint(f"  Katapult build failed: {result.stderr}", "red")
+                return False
+
+        cprint("  Katapult built successfully", "green")
+
+        # Flash via DFU
+        cprint("\n  Katapult must be flashed via DFU mode.", "yellow")
+        cprint("  Please put the MCU in DFU mode now:", "yellow")
+        cprint(f"    1. Hold the BOOT button on '{mcu.name}'", "cyan")
+        cprint(f"    2. Press and release the RESET button", "cyan")
+        cprint(f"    3. Wait 5 seconds, then release BOOT", "cyan")
+        cprint("")
+
+        response = input("  Press ENTER when the MCU is in DFU mode (or 'skip' to skip): ").strip().lower()
+        if response == "skip":
+            cprint("  Skipped.", "yellow")
+            return False
+
+        # Check for DFU device
+        result = run_cmd("lsusb | grep '0483:df11'")
+        if result.returncode != 0 or "0483:df11" not in (result.stdout or ""):
+            cprint("  No DFU device detected (0483:df11)!", "red")
+            cprint("  Make sure the MCU is in DFU mode and try again.", "yellow")
+            return False
+
+        cprint("  DFU device detected!", "green")
+
+        # Flash with dfu-util
+        katapult_bin = KATAPULT_DIR / "out" / "katapult.bin"
+        cmd = (
+            f"sudo dfu-util -a 0 -d 0483:df11 "
+            f"--dfuse-address 0x08000000:force:mass-erase:leave "
+            f"-D {katapult_bin} 2>&1"
+        )
+        result = run_cmd(cmd, timeout=60)
+
+        if "File downloaded successfully" in (result.stdout or ""):
+            cprint("  Katapult flashed successfully!", "green")
+            mcu.has_katapult = True
+            mcu.katapult_status = "installed"
+
+            cprint("\n  Please now:", "yellow")
+            cprint("    1. Remove the BOOT jumper (if set)", "cyan")
+            cprint("    2. Set the CAN/USB mode jumper correctly", "cyan")
+            cprint("    3. Power cycle the board", "cyan")
+
+            input("  Press ENTER when done: ")
+
+            # Verify on CAN bus
+            time.sleep(3)
+            result = run_cmd(
+                f"python3 {KATAPULT_DIR}/scripts/flash_can.py -i can0 -q 2>&1",
+                timeout=10
+            )
+            if "Katapult" in (result.stdout or ""):
+                cprint("  Katapult verified on CAN bus!", "green")
+                return True
+            else:
+                cprint("  Could not verify Katapult on CAN bus.", "yellow")
+                cprint("  Check wiring and jumpers, then try again.", "yellow")
+                return False
+        else:
+            cprint(f"  DFU flash failed: {result.stdout}", "red")
+            return False
+
     # ========== DISPLAY ==========
 
     def display_scan_results(self):
@@ -402,6 +591,16 @@ class KlipperMCUUpdater:
                 cprint(f"    Boot Offset:     0x{mcu.bootloader_offset:X} ({mcu.bootloader_offset // 1024}KiB)")
             cprint(f"    FW Version:      {mcu.firmware_version or 'unknown'}")
             cprint(f"    Klipper Host:    {self.klipper_version}")
+
+            # Katapult status
+            if mcu.katapult_status == "installed":
+                cprint(f"    Katapult:        INSTALLED", "green")
+            elif mcu.katapult_status == "not_needed":
+                cprint(f"    Katapult:        Not needed (Linux)", "green")
+            elif mcu.katapult_status == "missing":
+                cprint(f"    Katapult:        MISSING", "red")
+            else:
+                cprint(f"    Katapult:        Unknown")
 
             if mcu.firmware_version and self.klipper_version != "unknown":
                 if mcu.firmware_version in self.klipper_version:
@@ -634,6 +833,9 @@ class KlipperMCUUpdater:
         cprint(" Updating ALL MCUs", "bold")
         cprint("=" * 50, "bold")
 
+        if not self.check_katapult_all():
+            return
+
         if backup:
             self.create_backup()
 
@@ -682,6 +884,19 @@ class KlipperMCUUpdater:
             for m in self.mcus:
                 cprint(f"  - {m.name}")
             return
+
+        # Check Katapult for this specific MCU
+        if not mcu.is_linux_mcu and not mcu.has_katapult:
+            cprint(f"\n  {mcu.name}: Katapult bootloader NOT detected!", "red")
+            cprint("  Katapult is required for firmware updates.", "yellow")
+            response = input("  Install Katapult now? (yes/no): ").strip().lower()
+            if response in ("yes", "y"):
+                if not self.install_katapult(mcu):
+                    cprint("  Update aborted.", "red")
+                    return
+            else:
+                cprint("  Update aborted.", "red")
+                return
 
         if backup:
             self.create_backup()
