@@ -248,7 +248,7 @@ class KlipperMCUUpdater:
 
         # Find Cartographer/Scanner sections (not [mcu] but has its own MCU)
         carto_pattern = re.compile(
-            r'\[(cartographer|scanner)\]\s*\n((?:(?!\[).)*)',
+            r'\[(cartographer|scanner|beacon|idm)\]\s*\n((?:(?!\[).)*)',
             re.DOTALL
         )
         for match in carto_pattern.finditer(all_content):
@@ -372,12 +372,18 @@ class KlipperMCUUpdater:
                 mcu.katapult_status = "not_needed"
                 continue
 
-            if mcu.mcu_type == "cartographer":
-                # Cartographer version from log
-                carto_ver = re.compile(r"mcu_version\s*=\s*(CARTOGRAPHER\s*[\d.]+)")
-                for match in carto_ver.finditer(log_content):
+            if mcu.mcu_type in ("cartographer", "beacon", "idm"):
+                # Probe firmware version from log
+                probe_ver = re.compile(
+                    r"mcu_version\s*=\s*("
+                    r"CARTOGRAPHER\s*[\d.]+|"
+                    r"BEACON\s*[\d.]+|"
+                    r"IDM\s*[\d.]+"
+                    r")"
+                )
+                for match in probe_ver.finditer(log_content):
                     mcu.firmware_version = match.group(1)
-                # Cartographer with CAN uses Katapult
+                # CAN probes use Katapult
                 if mcu.connection_type == "can":
                     mcu.has_katapult = True
                     mcu.katapult_status = "installed"
@@ -1169,9 +1175,9 @@ class KlipperMCUUpdater:
         cprint(f" Updating: {mcu.name} ({mcu.mcu_type})", "bold")
         cprint(f"{'=' * 50}", "bold")
 
-        # Cartographer uses pre-built firmware, not Klipper build
-        if mcu.mcu_type == "cartographer":
-            return self._update_cartographer(mcu)
+        # Probes with pre-built firmware (Cartographer, Beacon, IDM)
+        if mcu.mcu_type in ("cartographer", "beacon", "idm"):
+            return self._update_probe(mcu)
 
         if not self.build_firmware(mcu):
             return False
@@ -1187,48 +1193,61 @@ class KlipperMCUUpdater:
 
         return success
 
-    def _update_cartographer(self, mcu: MCUInfo) -> bool:
-        carto_dir = Path.home() / "cartographer-klipper"
-        if not carto_dir.exists():
-            cprint("  cartographer-klipper repo not found at ~/cartographer-klipper", "red")
+    def _update_probe(self, mcu: MCUInfo) -> bool:
+        probe_type = mcu.mcu_type or "unknown"
+        # Known probe firmware repos
+        probe_repos = {
+            "cartographer": Path.home() / "cartographer-klipper",
+            "beacon": Path.home() / "beacon-klipper",
+            "idm": Path.home() / "idm-klipper",
+        }
+
+        repo_dir = probe_repos.get(probe_type)
+        if not repo_dir or not repo_dir.exists():
+            cprint(f"  {probe_type} firmware repo not found at ~/{probe_type}-klipper", "red")
+            cprint(f"  Clone it first, then retry.", "yellow")
             return False
 
         # Update the repo first
-        cprint("  Updating cartographer-klipper repo...", "yellow")
-        run_cmd(f"cd {carto_dir} && git pull 2>&1", timeout=30)
+        cprint(f"  Updating {probe_type}-klipper repo...", "yellow")
+        run_cmd(f"cd {repo_dir} && git pull 2>&1", timeout=30)
 
         # Find the right firmware binary based on CAN speed
         can_speed = mcu.can_speed or 1000000
         speed_str = str(can_speed)
+        probe_upper = probe_type.upper()
 
-        # Search for matching firmware
-        fw_patterns = [
-            carto_dir / f"firmware/v2-v3/survey/5.1.0/Survey_Cartographer_CAN_{speed_str}_8kib_offset.bin",
-            carto_dir / f"firmware/v2-v3/Cartographer_CAN_{speed_str}_8kib_offset.bin",
-            carto_dir / f"firmware/v2-v3/survey/5.1.0/HT/Survey_Cartographer_CAN_{speed_str}_8kib_offset.bin",
-        ]
+        # Search for matching firmware (check multiple common paths)
+        result = run_cmd(
+            f"find {repo_dir}/firmware -iname '*CAN*{speed_str}*8kib*' -name '*.bin' 2>/dev/null"
+        )
 
         firmware = None
-        for fw_path in fw_patterns:
-            if fw_path.exists():
-                firmware = fw_path
-                break
+        if result.returncode == 0 and result.stdout.strip():
+            # Pick the newest/most relevant firmware
+            candidates = result.stdout.strip().split("\n")
+            # Prefer "survey" or latest version
+            for c in candidates:
+                if "survey" in c.lower() or "latest" in c.lower():
+                    firmware = Path(c.strip())
+                    break
+            if not firmware:
+                firmware = Path(candidates[0].strip())
 
-        if not firmware:
-            cprint(f"  No Cartographer firmware found for CAN speed {speed_str}", "red")
-            cprint(f"  Searched in: {carto_dir / 'firmware/'}", "yellow")
+        if not firmware or not firmware.exists():
+            cprint(f"  No {probe_type} firmware found for CAN speed {speed_str}", "red")
             # List available firmware
-            result = run_cmd(f"find {carto_dir}/firmware -name '*CAN*' -name '*.bin' 2>/dev/null")
+            result = run_cmd(f"find {repo_dir}/firmware -name '*.bin' 2>/dev/null | head -10")
             if result.stdout:
                 cprint("  Available firmware files:", "yellow")
-                for line in result.stdout.strip().split("\n")[:5]:
-                    cprint(f"    {line.strip()}", "yellow")
+                for line in result.stdout.strip().split("\n"):
+                    cprint(f"    {Path(line.strip()).name}", "yellow")
             return False
 
         cprint(f"  Firmware: {firmware.name}", "green")
 
         if not mcu.uuid:
-            cprint("  No CAN UUID for Cartographer!", "red")
+            cprint(f"  No CAN UUID for {probe_type}!", "red")
             return False
 
         # Flash via Katapult
@@ -1240,10 +1259,10 @@ class KlipperMCUUpdater:
         result = run_cmd(cmd, timeout=120)
 
         if "Programming Complete" in (result.stdout or ""):
-            cprint(f"  Cartographer flashed", "green")
+            cprint(f"  {probe_type} flashed", "green")
             return True
 
-        cprint(f"  Cartographer flash failed: {result.stdout}", "red")
+        cprint(f"  {probe_type} flash failed: {result.stdout}", "red")
         return False
 
     def update_all(self, backup: bool = True):
