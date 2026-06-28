@@ -531,15 +531,26 @@ class KlipperMCUUpdater:
                     res_str = f" ({max_res})" if max_res else ""
                     cprint(f"  {device}: {current_name}{res_str}", "green")
         else:
-            # Fallback: check /dev/video* devices
-            result = run_cmd("ls /dev/video* 2>/dev/null")
+            # Fallback: check /dev/video* and filter real capture devices
+            result = run_cmd(
+                "for d in /dev/video*; do "
+                "v4l2-ctl -d $d --all 2>/dev/null | grep -q 'Video Capture' && echo $d; "
+                "done 2>/dev/null"
+            )
             if result.returncode == 0 and result.stdout.strip():
                 for device in result.stdout.strip().split("\n"):
                     device = device.strip()
-                    cam_info = {"name": "Unknown camera", "device": device, "max_resolution": ""}
+                    if not device:
+                        continue
+                    # Get camera name from USB info
+                    name_result = run_cmd(
+                        f"cat /sys/class/video4linux/{device.split('/')[-1]}/name 2>/dev/null"
+                    )
+                    name = name_result.stdout.strip() if name_result.returncode == 0 and name_result.stdout.strip() else "USB Camera"
+                    cam_info = {"name": name, "device": device, "max_resolution": ""}
                     self.webcams.append(cam_info)
-                    cprint(f"  {device}: Unknown camera", "yellow")
-            else:
+                    cprint(f"  {device}: {name}", "green")
+            if not self.webcams:
                 cprint("  No webcams found", "yellow")
 
     def _find_mcu_by_uuid(self, uuid: str) -> Optional[MCUInfo]:
