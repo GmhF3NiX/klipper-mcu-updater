@@ -701,6 +701,8 @@ class KlipperMCUUpdater:
                 cprint(f"    CAN UUID:        {mcu.uuid}")
             if mcu.serial_path:
                 cprint(f"    Serial:          {mcu.serial_path}")
+            if mcu.usb_pins and not mcu.is_canbridge:
+                cprint(f"    USB Pins:        {mcu.usb_pins}")
             if mcu.is_canbridge:
                 cprint(f"    CAN Bridge:      Yes", "yellow")
             if mcu.can_pins:
@@ -1027,21 +1029,22 @@ class KlipperMCUUpdater:
 
         # Communication interface
         if mcu.is_canbridge and mcu.usb_pins:
+            # USB-CAN bridge mode
             usb_key = mcu.usb_pins
             if usb_key in USBCAN_CONFIGS:
                 lines.append(USBCAN_CONFIGS[usb_key])
-
-        if mcu.can_pins:
+            if mcu.can_pins and mcu.can_pins in CAN_PIN_CONFIGS:
+                lines.append(CAN_PIN_CONFIGS[mcu.can_pins])
+        elif mcu.connection_type == "usb" and not mcu.can_pins:
+            # Pure USB mode (no CAN)
+            lines.append("CONFIG_STM32_USB_PA11_PA12=y")
+        elif mcu.can_pins:
+            # CAN mode
             can_key = mcu.can_pins
             if can_key in CAN_PIN_CONFIGS:
                 lines.append(CAN_PIN_CONFIGS[can_key])
-            # For non-bridge CAN-only devices, use the MMENU variant
-            for key, value in CAN_PIN_CONFIGS.items():
-                if can_key == key:
-                    lines.append(value)
-                    break
 
-        if mcu.can_speed:
+        if mcu.can_speed and (mcu.can_pins or mcu.is_canbridge):
             lines.append(f"CONFIG_CANBUS_FREQUENCY={mcu.can_speed}")
 
         return list(dict.fromkeys(lines))  # Remove duplicates
