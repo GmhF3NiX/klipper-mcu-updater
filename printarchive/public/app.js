@@ -12,9 +12,14 @@ const extFilter = document.getElementById('extFilter');
 const tagFilter = document.getElementById('tagFilter');
 const rescanBtn = document.getElementById('rescanBtn');
 const folderTreeEl = document.getElementById('folderTree');
+const categoryListEl = document.getElementById('categoryList');
+const newCategoryInput = document.getElementById('newCategory');
+const addCategoryBtn = document.getElementById('addCategoryBtn');
+const categoryOptionsEl = document.getElementById('categoryOptions');
 
 let currentFile = null;
 let activeFolder = ''; // '' = alle, '/' = nur root, sonst rel_path-Präfix
+let activeCategory = ''; // '' = alle, sonst category id
 
 function fmtBytes(n) {
   if (n < 1024) return n + ' B';
@@ -81,6 +86,62 @@ async function loadFolders() {
   mapChildren(tree.children).forEach(n => folderTreeEl.appendChild(renderFolderNode(n, 0)));
 }
 
+async function loadCategories() {
+  const categories = await fetch('/api/categories').then(r => r.json());
+
+  categoryListEl.innerHTML = '';
+  const allRow = document.createElement('div');
+  allRow.className = 'cat-row' + (activeCategory === '' ? ' active' : '');
+  allRow.innerHTML = `<span class="cat-label">◆ ALLE</span>`;
+  allRow.addEventListener('click', () => { activeCategory = ''; loadFiles(); loadCategories(); });
+  categoryListEl.appendChild(allRow);
+
+  if (!categories.length) {
+    const empty = document.createElement('div');
+    empty.className = 'cat-empty';
+    empty.textContent = 'noch keine kategorien';
+    categoryListEl.appendChild(empty);
+  }
+
+  for (const c of categories) {
+    const row = document.createElement('div');
+    row.className = 'cat-row' + (activeCategory === String(c.id) ? ' active' : '');
+    row.innerHTML = `
+      <span class="cat-label">${c.name}</span>
+      <span class="count">${c.count}</span>
+      <span class="cat-del" title="Kategorie löschen">×</span>
+    `;
+    row.addEventListener('click', (e) => {
+      if (e.target.classList.contains('cat-del')) return;
+      activeCategory = activeCategory === String(c.id) ? '' : String(c.id);
+      loadFiles();
+      loadCategories();
+    });
+    row.querySelector('.cat-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Kategorie "${c.name}" wirklich löschen?`)) return;
+      await fetch(`/api/categories/${c.id}`, { method: 'DELETE' });
+      if (activeCategory === String(c.id)) activeCategory = '';
+      loadFiles(); loadCategories();
+    });
+    categoryListEl.appendChild(row);
+  }
+
+  categoryOptionsEl.innerHTML = categories.map(c => `<option value="${c.name}">`).join('');
+}
+
+async function createCategory() {
+  const name = newCategoryInput.value.trim();
+  if (!name) return;
+  await fetch('/api/categories', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  });
+  newCategoryInput.value = '';
+  loadCategories();
+}
+addCategoryBtn.addEventListener('click', createCategory);
+newCategoryInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') createCategory(); });
+
 function extIcon(ext) {
   return ext.toUpperCase();
 }
@@ -110,6 +171,7 @@ async function loadFiles() {
   if (extFilter.value) params.set('ext', extFilter.value);
   if (tagFilter.value) params.set('tag', tagFilter.value);
   if (activeFolder) params.set('folder', activeFolder);
+  if (activeCategory) params.set('category', activeCategory);
 
   const files = await fetch('/api/files?' + params.toString()).then(r => r.json());
   grid.innerHTML = '';
@@ -129,7 +191,7 @@ rescanBtn.addEventListener('click', async () => {
   rescanBtn.textContent = '… SCANNING';
   rescanBtn.disabled = true;
   await fetch('/api/rescan', { method: 'POST' });
-  await Promise.all([loadFiles(), loadStats(), loadTags(), loadFolders()]);
+  await Promise.all([loadFiles(), loadStats(), loadTags(), loadFolders(), loadCategories()]);
   rescanBtn.textContent = '↻ RESCAN';
   rescanBtn.disabled = false;
 });
@@ -145,6 +207,9 @@ const rawBtn = document.getElementById('rawBtn');
 const newTagInput = document.getElementById('newTag');
 const addTagBtn = document.getElementById('addTagBtn');
 const viewerEl = document.getElementById('viewer');
+const modalCategories = document.getElementById('modalCategories');
+const newCategoryForFileInput = document.getElementById('newCategoryForFile');
+const addCategoryForFileBtn = document.getElementById('addCategoryForFileBtn');
 
 let renderer, scene, camera, controls, animFrame, currentMesh;
 
@@ -250,6 +315,7 @@ function openModal(f) {
   document.getElementById('orcaBtn').href = `orcaslicer://open?file=${encodeURIComponent(absoluteRawUrl)}`;
 
   renderTags(f.tags);
+  renderCategories(f.categories);
 
   modalBackdrop.classList.add('open');
   if (!renderer) initViewer();
@@ -282,6 +348,34 @@ addTagBtn.addEventListener('click', async () => {
   loadFiles(); loadTags();
 });
 
+function renderCategories(categories) {
+  modalCategories.innerHTML = categories.map(c =>
+    `<span class="chip" data-id="${c.id}" style="cursor:pointer">${c.name} ×</span>`
+  ).join('');
+  modalCategories.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', async () => {
+      await fetch(`/api/files/${currentFile.id}/categories/${chip.dataset.id}`, { method: 'DELETE' });
+      currentFile.categories = currentFile.categories.filter(c => String(c.id) !== chip.dataset.id);
+      renderCategories(currentFile.categories);
+      loadCategories();
+    });
+  });
+}
+
+addCategoryForFileBtn.addEventListener('click', async () => {
+  const name = newCategoryForFileInput.value.trim();
+  if (!name || !currentFile) return;
+  const { category } = await fetch(`/api/files/${currentFile.id}/categories`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  }).then(r => r.json());
+  if (!currentFile.categories.some(c => c.id === category.id)) {
+    currentFile.categories = [...currentFile.categories, category];
+  }
+  renderCategories(currentFile.categories);
+  newCategoryForFileInput.value = '';
+  loadCategories();
+});
+
 closeModalBtn.addEventListener('click', closeModal);
 modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeModal(); });
 
@@ -291,5 +385,5 @@ function closeModal() {
 
 // ---------- init ----------
 (async function init() {
-  await Promise.all([loadFiles(), loadStats(), loadTags(), loadFolders()]);
+  await Promise.all([loadFiles(), loadStats(), loadTags(), loadFolders(), loadCategories()]);
 })();

@@ -19,7 +19,13 @@ function fileWithTags(row) {
     WHERE ft.file_id = ?
     ORDER BY t.name
   `).all(row.id).map(t => t.name);
-  return { ...row, tags };
+  const categories = db.prepare(`
+    SELECT c.id, c.name FROM categories c
+    JOIN file_categories fc ON fc.category_id = c.id
+    WHERE fc.file_id = ?
+    ORDER BY c.name
+  `).all(row.id);
+  return { ...row, tags, categories };
 }
 
 // ---- API ----
@@ -30,7 +36,7 @@ app.get('/api/stats', (req, res) => {
 });
 
 app.get('/api/files', (req, res) => {
-  const { q, tag, ext, folder } = req.query;
+  const { q, tag, ext, folder, category } = req.query;
   let sql = `SELECT DISTINCT f.* FROM files f`;
   const where = [];
   const params = {};
@@ -39,6 +45,11 @@ app.get('/api/files', (req, res) => {
     sql += ` JOIN file_tags ft ON ft.file_id = f.id JOIN tags t ON t.id = ft.tag_id`;
     where.push(`t.name = @tag`);
     params.tag = tag;
+  }
+  if (category) {
+    sql += ` JOIN file_categories fc ON fc.file_id = f.id`;
+    where.push(`fc.category_id = @category`);
+    params.category = category;
   }
   if (q) {
     where.push(`f.filename LIKE @q`);
@@ -65,9 +76,9 @@ app.get('/api/files', (req, res) => {
   res.json(rows.map(fileWithTags));
 });
 
-// Kategorien = Ordnerstruktur des Bibliotheksordners. Kein separates Feld zu pflegen —
+// Ordner-Baum = Ordnerstruktur des Bibliotheksordners. Kein separates Feld zu pflegen —
 // leg im Bibliotheksordner einfach Unterordner an (z.B. "Vasen", "Mechanik/Zahnraeder"),
-// die Sidebar bildet sie 1:1 nach.
+// die Sidebar bildet sie 1:1 nach. Für frei anlegbare Kategorien siehe /api/categories.
 app.get('/api/folders', (req, res) => {
   const rows = db.prepare(`SELECT rel_path FROM files`).all();
   const root = { name: '/', path: '', count: 0, children: {} };
@@ -149,6 +160,51 @@ app.delete('/api/files/:id/tags/:tag', (req, res) => {
 
 app.get('/api/tags', (req, res) => {
   res.json(db.prepare(`SELECT name FROM tags ORDER BY name`).all().map(t => t.name));
+});
+
+// ---- user-defined categories (sidebar, independent of folder structure) ----
+app.get('/api/categories', (req, res) => {
+  const rows = db.prepare(`
+    SELECT c.id, c.name, COUNT(fc.file_id) count
+    FROM categories c
+    LEFT JOIN file_categories fc ON fc.category_id = c.id
+    GROUP BY c.id
+    ORDER BY c.sort_order, c.name
+  `).all();
+  res.json(rows);
+});
+
+app.post('/api/categories', (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name_required' });
+
+  db.prepare(`INSERT OR IGNORE INTO categories (name) VALUES (?)`).run(name);
+  const row = db.prepare(`SELECT id, name FROM categories WHERE name = ?`).get(name);
+  res.json(row);
+});
+
+app.delete('/api/categories/:id', (req, res) => {
+  db.prepare(`DELETE FROM file_categories WHERE category_id = ?`).run(req.params.id);
+  db.prepare(`DELETE FROM categories WHERE id = ?`).run(req.params.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/files/:id/categories', (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name_required' });
+
+  db.prepare(`INSERT OR IGNORE INTO categories (name) VALUES (?)`).run(name);
+  const cat = db.prepare(`SELECT id, name FROM categories WHERE name = ?`).get(name);
+  db.prepare(`INSERT OR IGNORE INTO file_categories (file_id, category_id) VALUES (?, ?)`)
+    .run(req.params.id, cat.id);
+
+  res.json({ ok: true, category: cat });
+});
+
+app.delete('/api/files/:id/categories/:categoryId', (req, res) => {
+  db.prepare(`DELETE FROM file_categories WHERE file_id = ? AND category_id = ?`)
+    .run(req.params.id, req.params.categoryId);
+  res.json({ ok: true });
 });
 
 app.post('/api/rescan', (req, res) => {

@@ -74,6 +74,24 @@
   .folder-children{ margin-left:12px; border-left:1px dashed var(--grid); }
   .main-col{ flex:1; min-width:0; }
 
+  .sidebar-section{ margin-top:18px; padding-top:14px; border-top:1px solid var(--grid); }
+  .cat-row{
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+    padding:6px 8px; cursor:pointer; color:var(--text); border-left:2px solid transparent;
+    font-family:'Share Tech Mono',monospace; font-size:12.5px;
+  }
+  .cat-row:hover{ color:var(--cyan); }
+  .cat-row:hover .cat-del{ visibility:visible; }
+  .cat-row.active{ color:var(--cyan); border-left-color:var(--cyan); background:rgba(0,255,242,0.06); }
+  .cat-row .count{ color:var(--dim); font-size:10.5px; }
+  .cat-row .cat-label{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .cat-del{ visibility:hidden; color:var(--dim); font-size:13px; padding:0 2px; }
+  .cat-del:hover{ color:var(--magenta); }
+  .cat-add{ display:flex; gap:6px; margin-top:8px; }
+  .cat-add input{ flex:1; min-width:0; font-size:11.5px; padding:7px 8px; }
+  .cat-add button{ font-size:11px; padding:7px 9px; }
+  .cat-empty{ font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--dim); padding:4px 8px; }
+
   @media (max-width: 760px){
     .layout{ flex-direction:column; }
     .sidebar{ width:100%; position:static; }
@@ -135,11 +153,20 @@
 
   <div class="layout">
     <aside class="sidebar">
-      <h3>KATEGORIEN</h3>
+      <h3>ORDNER</h3>
       <div class="folder-tree" id="folderTree"></div>
       <div style="font-family:'Share Tech Mono',monospace; font-size:10.5px; color:var(--dim); margin-top:12px; line-height:1.5;">
-        Kategorien = Unterordner in deiner Bibliothek. Leg im Share einfach neue Ordner an
+        Ordner = Unterordner in deiner Bibliothek. Leg im Share einfach neue Ordner an
         (z.B. „Vasen“, „Mechanik/Zahnräder“) — nach RESCAN erscheinen sie hier automatisch.
+      </div>
+
+      <div class="sidebar-section">
+        <h3>KATEGORIEN</h3>
+        <div class="folder-tree" id="categoryList"></div>
+        <div class="cat-add">
+          <input type="text" id="newCategory" placeholder="neue kategorie…">
+          <button id="addCategoryBtn">+</button>
+        </div>
       </div>
     </aside>
 
@@ -187,6 +214,13 @@
         <button id="addTagBtn">+ TAG</button>
       </div>
       <div class="card-tags" id="modalTags" style="margin-top:10px;"></div>
+
+      <div class="tag-editor" style="margin-top:14px;">
+        <input type="text" id="newCategoryForFile" placeholder="kategorie zuweisen…" list="categoryOptions">
+        <datalist id="categoryOptions"></datalist>
+        <button id="addCategoryForFileBtn">+ KATEGORIE</button>
+      </div>
+      <div class="card-tags" id="modalCategories" style="margin-top:10px;"></div>
       <div class="hint">
         "IN ORCASLICER ÖFFNEN" nutzt das <code>orcaslicer://open?file=…</code>-Protokoll, das die
         OrcaSlicer-Desktop-App auf Windows/Mac registriert (dasselbe, was Printables' "Open in Slicer"
