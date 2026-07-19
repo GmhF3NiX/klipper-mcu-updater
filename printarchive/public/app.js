@@ -316,6 +316,7 @@ function openModal(f) {
 
   renderTags(f.tags);
   renderCategories(f.categories);
+  refreshJobs();
 
   modalBackdrop.classList.add('open');
   if (!renderer) initViewer();
@@ -381,7 +382,195 @@ modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop)
 
 function closeModal() {
   modalBackdrop.classList.remove('open');
+  stopRunningTimer();
 }
+
+// ---------- Druck-Kosten (Start/Stop-Timer -> Stromkosten via Home Assistant) ----------
+const startPrintBtn = document.getElementById('startPrintBtn');
+const stopPrintBtn = document.getElementById('stopPrintBtn');
+const runningHint = document.getElementById('runningHint');
+const jobListEl = document.getElementById('jobList');
+
+let runningJob = null;
+let runningTimerId = null;
+
+function fmtDuration(ms) {
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}min` : `${m}min`;
+}
+
+function fmtEur(n) {
+  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+function fmtDateTime(ms) {
+  return new Date(ms).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function stopRunningTimer() {
+  if (runningTimerId) { clearInterval(runningTimerId); runningTimerId = null; }
+}
+
+function updateRunningHint() {
+  if (!runningJob) return;
+  runningHint.textContent = `⏱ läuft seit ${fmtDuration(Date.now() - runningJob.started_at)}`;
+}
+
+function setTimerUI() {
+  const isRunning = Boolean(runningJob);
+  startPrintBtn.style.display = isRunning ? 'none' : '';
+  stopPrintBtn.style.display = isRunning ? '' : 'none';
+  runningHint.style.display = isRunning ? '' : 'none';
+  stopRunningTimer();
+  if (isRunning) {
+    updateRunningHint();
+    runningTimerId = setInterval(updateRunningHint, 30000);
+  }
+}
+
+function jobErrorLabel(err) {
+  if (err === 'ha_not_configured') return 'Home Assistant nicht konfiguriert (⚙ Einstellungen)';
+  if (err === 'ha_no_data') return 'keine Energiedaten für diesen Zeitraum gefunden';
+  if (err === 'ha_counter_reset') return 'Energiezähler ist zwischendurch zurückgesprungen';
+  if (String(err || '').startsWith('ha_http_')) return `Home Assistant antwortete mit ${err.replace('ha_http_', 'HTTP ')}`;
+  if (String(err || '').startsWith('ha_unreachable')) return 'Home Assistant nicht erreichbar (URL prüfen)';
+  return err || 'unbekannter Fehler';
+}
+
+function renderJobs(jobs) {
+  jobListEl.innerHTML = '';
+  const finished = jobs.filter(j => j.status !== 'running');
+  if (!finished.length) {
+    const empty = document.createElement('div');
+    empty.className = 'cat-empty';
+    empty.textContent = 'noch keine abgeschlossenen Drucke erfasst';
+    jobListEl.appendChild(empty);
+    return;
+  }
+
+  for (const job of finished) {
+    const row = document.createElement('div');
+    row.className = 'job-row';
+
+    const total = (job.energy_cost || 0) + (job.filament_cost || 0);
+    row.innerHTML = `
+      <div class="job-top">
+        <span>${fmtDateTime(job.started_at)} · ${fmtDuration(job.ended_at - job.started_at)}</span>
+        <button class="job-del" title="Eintrag löschen">×</button>
+      </div>
+      <div>
+        ${job.energy_error
+          ? `<span class="job-error">Strom: ${jobErrorLabel(job.energy_error)}</span>`
+          : `<span>Strom: ${job.energy_kwh.toFixed(3)} kWh → <span class="job-cost">${fmtEur(job.energy_cost)}</span></span>`}
+      </div>
+      <div class="job-material" style="margin-top:8px;">
+        <input type="text" inputmode="decimal" class="job-grams" placeholder="Gramm" value="${job.filament_grams ?? ''}">
+        <input type="text" inputmode="decimal" class="job-price" placeholder="€/kg" value="${job.filament_price_per_kg ?? ''}">
+        <button class="job-save-material" type="button">SPEICHERN</button>
+        ${job.filament_cost != null ? `<span>→ <span class="job-cost">${fmtEur(job.filament_cost)}</span></span>` : ''}
+      </div>
+      ${(job.energy_cost != null || job.filament_cost != null)
+        ? `<div class="job-total">GESAMT: ${fmtEur(total)}</div>` : ''}
+    `;
+
+    row.querySelector('.job-del').addEventListener('click', async () => {
+      await fetch(`/api/print-jobs/${job.id}`, { method: 'DELETE' });
+      refreshJobs();
+    });
+
+    row.querySelector('.job-save-material').addEventListener('click', async () => {
+      const grams = row.querySelector('.job-grams').value.trim();
+      const price = row.querySelector('.job-price').value.trim();
+      await fetch(`/api/print-jobs/${job.id}/material`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filament_grams: grams, filament_price_per_kg: price }),
+      });
+      refreshJobs();
+    });
+
+    jobListEl.appendChild(row);
+  }
+}
+
+async function refreshJobs() {
+  if (!currentFile) return;
+  const jobs = await fetch(`/api/files/${currentFile.id}/print-jobs`).then(r => r.json());
+  runningJob = jobs.find(j => j.status === 'running') || null;
+  setTimerUI();
+  renderJobs(jobs);
+}
+
+startPrintBtn.addEventListener('click', async () => {
+  if (!currentFile) return;
+  const res = await fetch(`/api/files/${currentFile.id}/print-jobs/start`, { method: 'POST' });
+  if (res.ok) refreshJobs();
+});
+
+stopPrintBtn.addEventListener('click', async () => {
+  if (!runningJob) return;
+  stopPrintBtn.disabled = true;
+  stopPrintBtn.textContent = '… WIRD AUSGEWERTET';
+  await fetch(`/api/print-jobs/${runningJob.id}/stop`, { method: 'POST' });
+  stopPrintBtn.disabled = false;
+  stopPrintBtn.textContent = '■ DRUCK BEENDEN';
+  refreshJobs();
+});
+
+// ---------- Einstellungen (Strompreis + Home Assistant) ----------
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsBackdrop = document.getElementById('settingsBackdrop');
+const closeSettingsBtn = document.getElementById('closeSettings');
+const setPowerPrice = document.getElementById('setPowerPrice');
+const setHaUrl = document.getElementById('setHaUrl');
+const setHaToken = document.getElementById('setHaToken');
+const setHaEntity = document.getElementById('setHaEntity');
+const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+const testHaBtn = document.getElementById('testHaBtn');
+const haStatus = document.getElementById('haStatus');
+
+async function openSettings() {
+  const s = await fetch('/api/settings').then(r => r.json());
+  setPowerPrice.value = s.power_price_eur_per_kwh;
+  setHaUrl.value = s.ha_base_url;
+  setHaEntity.value = s.ha_energy_entity_id;
+  setHaToken.value = '';
+  setHaToken.placeholder = s.ha_token_set ? '•••• (gespeichert — leer lassen zum Beibehalten)' : 'wird beim Speichern nicht angezeigt';
+  haStatus.textContent = '';
+  haStatus.className = 'ha-status';
+  settingsBackdrop.classList.add('open');
+}
+
+settingsBtn.addEventListener('click', openSettings);
+closeSettingsBtn.addEventListener('click', () => settingsBackdrop.classList.remove('open'));
+settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) settingsBackdrop.classList.remove('open'); });
+
+saveSettingsBtn.addEventListener('click', async () => {
+  const body = {
+    power_price_eur_per_kwh: setPowerPrice.value.trim(),
+    ha_base_url: setHaUrl.value.trim(),
+    ha_energy_entity_id: setHaEntity.value.trim(),
+  };
+  if (setHaToken.value.trim()) body.ha_token = setHaToken.value.trim();
+  await fetch('/api/settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  settingsBackdrop.classList.remove('open');
+});
+
+testHaBtn.addEventListener('click', async () => {
+  haStatus.textContent = 'prüfe…';
+  haStatus.className = 'ha-status';
+  const result = await fetch('/api/settings/test-ha').then(r => r.json());
+  if (result.ok) {
+    haStatus.textContent = `✓ verbunden — aktueller Wert: ${result.state} ${result.unit}`;
+    haStatus.className = 'ha-status ok';
+  } else {
+    haStatus.textContent = `✗ ${jobErrorLabel(result.error)}`;
+    haStatus.className = 'ha-status err';
+  }
+});
 
 // ---------- init ----------
 (async function init() {

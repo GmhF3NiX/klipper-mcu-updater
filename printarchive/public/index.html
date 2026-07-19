@@ -137,6 +137,37 @@
   .hint{ font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--dim); margin-top:10px; line-height:1.5; border-top:1px dashed var(--grid); padding-top:10px; }
 
   footer{ margin-top:36px; font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--dim); letter-spacing:1px; border-top:1px solid var(--grid); padding-top:14px; }
+
+  .icon-btn{ font-size:16px; padding:9px 12px; line-height:1; }
+
+  /* Druck-Kosten */
+  .cost-section{ margin-top:18px; padding-top:14px; border-top:1px dashed var(--grid); }
+  .cost-title{ font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--dim); letter-spacing:2px; margin-bottom:10px; }
+  .cost-timer{ display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .cost-timer .running{ color:var(--amber); font-family:'Share Tech Mono',monospace; font-size:12px; }
+  .job-row{ border:1px solid var(--grid); background:var(--bg); padding:10px 12px; margin-bottom:8px; font-family:'Share Tech Mono',monospace; font-size:11.5px; }
+  .job-row .job-top{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; color:var(--dim); margin-bottom:6px; }
+  .job-row .job-cost{ color:var(--cyan); }
+  .job-row .job-error{ color:var(--magenta); }
+  .job-material{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .job-material input{ width:80px; background:var(--bg2); border:1px solid var(--grid); color:var(--text); font-family:'Share Tech Mono',monospace; font-size:11px; padding:6px 8px; }
+  .job-material button{ font-size:10.5px; padding:6px 9px; }
+  .job-total{ margin-top:6px; color:#fff; }
+  .job-del{ background:none; border:none; color:var(--dim); cursor:pointer; font-size:13px; }
+  .job-del:hover{ color:var(--magenta); }
+
+  /* settings modal */
+  .settings-field{ margin-bottom:14px; }
+  .settings-field label{ display:block; font-family:'Share Tech Mono',monospace; font-size:10.5px; color:var(--dim); letter-spacing:1.5px; margin-bottom:6px; }
+  .settings-field input{
+    width:100%; background:var(--bg); border:1px solid var(--grid); color:var(--text);
+    font-family:'Share Tech Mono',monospace; font-size:13px; padding:9px 12px;
+  }
+  .settings-field input:focus{ outline:none; border-color:var(--cyan); }
+  .settings-row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:4px; }
+  .ha-status{ font-family:'Share Tech Mono',monospace; font-size:11.5px; }
+  .ha-status.ok{ color:var(--cyan); }
+  .ha-status.err{ color:var(--magenta); }
 </style>
 </head>
 <body>
@@ -148,7 +179,10 @@
       <div class="tag">SYS://LOCAL-SERVER · SELF-HOSTED</div>
       <h1>3D-PRINT ARCHIVE</h1>
     </div>
-    <div class="stats" id="stats">lädt…</div>
+    <div style="display:flex; align-items:flex-end; gap:14px;">
+      <div class="stats" id="stats">lädt…</div>
+      <button class="icon-btn" id="settingsBtn" title="Einstellungen (Strompreis, Home Assistant)">⚙</button>
+    </div>
   </header>
 
   <div class="layout">
@@ -227,6 +261,58 @@
         nutzt) — OrcaSlicer muss installiert und einmal gestartet worden sein, dein Server muss im
         selben Netz erreichbar sein. Auf manchen Linux-Distros (v. a. KDE) ist die Protokoll-Registrierung
         unzuverlässig — dann hilft nur DOWNLOAD + manuell in OrcaSlicer importieren.
+      </div>
+
+      <div class="cost-section">
+        <div class="cost-title">DRUCK-KOSTEN</div>
+        <div class="cost-timer">
+          <button class="primary" id="startPrintBtn" type="button">▶ DRUCK STARTEN</button>
+          <button id="stopPrintBtn" type="button" style="display:none;">■ DRUCK BEENDEN</button>
+          <span class="running" id="runningHint" style="display:none;"></span>
+        </div>
+        <div id="jobList"></div>
+        <div class="hint">
+          Strom kommt von deinem Home-Assistant-Energiesensor für den Zeitraum zwischen Start und Stop
+          (Einstellungen über das ⚙-Symbol oben rechts). Filamentgewicht &amp; Preis/kg trägst du bis zur
+          Spoolman-Anbindung manuell ein.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="settingsBackdrop">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-head">
+      <h2>EINSTELLUNGEN</h2>
+      <button class="close-btn" id="closeSettings">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-field">
+        <label for="setPowerPrice">STROMPREIS (€/kWh)</label>
+        <input type="text" id="setPowerPrice" inputmode="decimal" placeholder="0.35">
+      </div>
+      <div class="settings-field">
+        <label for="setHaUrl">HOME ASSISTANT — BASIS-URL</label>
+        <input type="text" id="setHaUrl" placeholder="http://192.168.178.99:8123">
+      </div>
+      <div class="settings-field">
+        <label for="setHaToken">HOME ASSISTANT — LONG-LIVED ACCESS TOKEN</label>
+        <input type="password" id="setHaToken" placeholder="wird beim Speichern nicht angezeigt">
+      </div>
+      <div class="settings-field">
+        <label for="setHaEntity">HOME ASSISTANT — ENERGIE-SENSOR (ENTITY-ID)</label>
+        <input type="text" id="setHaEntity" placeholder="sensor.drucker_energie">
+      </div>
+      <div class="settings-row">
+        <button class="primary" id="saveSettingsBtn" type="button">SPEICHERN</button>
+        <button id="testHaBtn" type="button">VERBINDUNG TESTEN</button>
+        <span class="ha-status" id="haStatus"></span>
+      </div>
+      <div class="hint">
+        Token erstellst du in Home Assistant unter deinem Profil → "Long-Lived Access Tokens" → "Token erstellen".
+        Der Sensor muss ein kumulativer Energiezähler sein (device_class: energy, state_class: total_increasing),
+        z.B. der einer Zigbee-Steckdose am Drucker.
       </div>
     </div>
   </div>

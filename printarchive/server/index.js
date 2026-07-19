@@ -3,6 +3,8 @@ const fs = require('fs');
 const express = require('express');
 const db = require('./db');
 const { scanLibrary, LIBRARY_PATH, THUMB_DIR } = require('./scanner');
+const { getSetting, setSetting } = require('./settings');
+const ha = require('./homeassistant');
 
 const PORT = process.env.PORT || 8420;
 const app = express();
@@ -204,6 +206,105 @@ app.post('/api/files/:id/categories', (req, res) => {
 app.delete('/api/files/:id/categories/:categoryId', (req, res) => {
   db.prepare(`DELETE FROM file_categories WHERE file_id = ? AND category_id = ?`)
     .run(req.params.id, req.params.categoryId);
+  res.json({ ok: true });
+});
+
+// ---- settings (Strompreis + Home-Assistant-Zugang) ----
+app.get('/api/settings', (req, res) => {
+  res.json({
+    power_price_eur_per_kwh: getSetting('power_price_eur_per_kwh', '0.35'),
+    ha_base_url: getSetting('ha_base_url', ''),
+    ha_energy_entity_id: getSetting('ha_energy_entity_id', ''),
+    ha_token_set: Boolean(getSetting('ha_token')),
+  });
+});
+
+app.post('/api/settings', (req, res) => {
+  const { power_price_eur_per_kwh, ha_base_url, ha_energy_entity_id, ha_token } = req.body;
+  if (power_price_eur_per_kwh !== undefined) setSetting('power_price_eur_per_kwh', String(power_price_eur_per_kwh));
+  if (ha_base_url !== undefined) setSetting('ha_base_url', String(ha_base_url).trim());
+  if (ha_energy_entity_id !== undefined) setSetting('ha_energy_entity_id', String(ha_energy_entity_id).trim());
+  // Token nur überschreiben, wenn tatsächlich ein neuer eingegeben wurde —
+  // sonst bliebe das Feld beim Speichern anderer Settings sonst leer.
+  if (ha_token) setSetting('ha_token', String(ha_token).trim());
+  res.json({ ok: true });
+});
+
+app.get('/api/settings/test-ha', async (req, res) => {
+  const baseUrl = getSetting('ha_base_url');
+  const token = getSetting('ha_token');
+  const entityId = getSetting('ha_energy_entity_id');
+  if (!baseUrl || !token || !entityId) {
+    return res.json({ ok: false, error: 'ha_not_configured' });
+  }
+  try {
+    const state = await ha.fetchCurrentState(baseUrl, token, entityId);
+    res.json({ ok: true, state: state.state, unit: state.attributes?.unit_of_measurement || '' });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// ---- print jobs (Start/Stop-Timer -> Stromkosten via Home Assistant, Filamentkosten manuell) ----
+app.get('/api/files/:id/print-jobs', (req, res) => {
+  const rows = db.prepare(`SELECT * FROM print_jobs WHERE file_id = ? ORDER BY started_at DESC`).all(req.params.id);
+  res.json(rows);
+});
+
+app.post('/api/files/:id/print-jobs/start', (req, res) => {
+  const running = db.prepare(`SELECT id FROM print_jobs WHERE file_id = ? AND status = 'running'`).get(req.params.id);
+  if (running) return res.status(409).json({ error: 'already_running', jobId: running.id });
+
+  const info = db.prepare(`INSERT INTO print_jobs (file_id, started_at, status) VALUES (?, ?, 'running')`)
+    .run(req.params.id, Date.now());
+  res.json(db.prepare(`SELECT * FROM print_jobs WHERE id = ?`).get(info.lastInsertRowid));
+});
+
+app.post('/api/print-jobs/:id/stop', async (req, res) => {
+  const job = db.prepare(`SELECT * FROM print_jobs WHERE id = ?`).get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'not_found' });
+
+  const endedAt = Date.now();
+  const price = parseFloat(getSetting('power_price_eur_per_kwh', '0.35')) || 0;
+  const baseUrl = getSetting('ha_base_url');
+  const token = getSetting('ha_token');
+  const entityId = getSetting('ha_energy_entity_id');
+
+  let energyKwh = null, energyCost = null, energyError = null;
+  if (!baseUrl || !token || !entityId) {
+    energyError = 'ha_not_configured';
+  } else {
+    try {
+      energyKwh = await ha.fetchEnergyDelta(baseUrl, token, entityId, job.started_at, endedAt);
+      energyCost = energyKwh * price;
+    } catch (err) {
+      energyError = err.message;
+    }
+  }
+
+  db.prepare(`
+    UPDATE print_jobs SET ended_at = ?, status = 'done', energy_kwh = ?, energy_cost = ?, energy_error = ?
+    WHERE id = ?
+  `).run(endedAt, energyKwh, energyCost, energyError, req.params.id);
+
+  res.json(db.prepare(`SELECT * FROM print_jobs WHERE id = ?`).get(req.params.id));
+});
+
+app.post('/api/print-jobs/:id/material', (req, res) => {
+  const grams = req.body.filament_grams !== '' && req.body.filament_grams != null ? Number(req.body.filament_grams) : null;
+  const pricePerKg = req.body.filament_price_per_kg !== '' && req.body.filament_price_per_kg != null ? Number(req.body.filament_price_per_kg) : null;
+  const filamentCost = (grams != null && pricePerKg != null) ? (grams / 1000) * pricePerKg : null;
+
+  db.prepare(`
+    UPDATE print_jobs SET filament_grams = ?, filament_price_per_kg = ?, filament_cost = ?
+    WHERE id = ?
+  `).run(grams, pricePerKg, filamentCost, req.params.id);
+
+  res.json(db.prepare(`SELECT * FROM print_jobs WHERE id = ?`).get(req.params.id));
+});
+
+app.delete('/api/print-jobs/:id', (req, res) => {
+  db.prepare(`DELETE FROM print_jobs WHERE id = ?`).run(req.params.id);
   res.json({ ok: true });
 });
 

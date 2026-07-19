@@ -9,10 +9,13 @@ Backend: Node.js/Express + SQLite. Frontend: Vanilla JS + Three.js (3D-Vorschau 
 - Indexiert Dateiname, Größe, Pfad in einer lokalen SQLite-DB
 - Extrahiert bei `.3mf`-Dateien das eingebettete Vorschaubild (falls vom Slicer gespeichert)
 - Zeigt STL/OBJ/3MF live als 3D-Modell im Browser (drehen, zoomen)
-- Tags, Suche, Filter nach Format/Tag
+- Tags, frei anlegbare Kategorien (unabhängig von der Ordnerstruktur), Suche, Filter nach Format/Tag/Kategorie
 - "Download / An Slicer öffnen" liefert die Originaldatei mit korrektem MIME-Type,
   sodass sie vom Betriebssystem im als Standard registrierten Slicer geöffnet wird
 - Rührt die Originaldateien nicht an — reiner Lesezugriff, außer du löschst/verschiebst selbst
+- Druck-Kosten pro Datei: Start/Stop-Timer, Stromkosten werden über einen Home-Assistant-Energiesensor
+  (z. B. Zigbee-Steckdose am Drucker) für genau dieses Zeitfenster abgefragt und mit deinem Strompreis
+  verrechnet; Filamentgewicht + Preis/kg trägst du manuell ein (Spoolman-Anbindung dafür ist noch offen)
 
 **Kein** Moonraker/Klipper-Uplink, kein automatisches G-Code-Generieren. Wenn du das brauchst,
 schau dir zusätzlich PrintStash an — das ist nicht das, was hier gebaut wurde.
@@ -66,6 +69,11 @@ wie oben).
 | `PORT` | `8420` | interner Port |
 | `PUID` / `PGID` | `99` / `100` | Nutzer, unter dem der Prozess läuft (unraid-Standard) |
 | `RESCAN_INTERVAL_MINUTES` | `15` | automatischer Re-Scan der Bibliothek |
+
+Strompreis und Home-Assistant-Zugang (Basis-URL, Long-Lived Access Token, Energie-Entity-ID) werden
+**nicht** über Env-Variablen gesetzt, sondern über das ⚙-Einstellungen-Menü in der App selbst (landen
+in der SQLite-DB in `CONFIG_DIR`). Das funktioniert unabhängig davon, ob Home Assistant als OS/Supervised
+oder als eigener Docker-Container läuft — printarchive spricht nur die normale HA-REST-API an.
 
 ## Grenzen, die du kennen solltest
 

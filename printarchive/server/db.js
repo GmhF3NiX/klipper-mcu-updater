@@ -47,6 +47,29 @@ CREATE TABLE IF NOT EXISTS file_categories (
   FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+
+-- Ein Eintrag pro Druckversuch einer Datei. Start/Stop wird manuell im UI
+-- ausgelöst; der Stromverbrauch für das Zeitfenster kommt von einem
+-- Home-Assistant-Energiesensor (z.B. Zigbee-Steckdose am Drucker).
+CREATE TABLE IF NOT EXISTS print_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id INTEGER NOT NULL,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  status TEXT NOT NULL DEFAULT 'running',
+  energy_kwh REAL,
+  energy_cost REAL,
+  energy_error TEXT,
+  filament_grams REAL,
+  filament_price_per_kg REAL,
+  filament_cost REAL,
+  FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+);
 `);
 
 module.exports = db;
