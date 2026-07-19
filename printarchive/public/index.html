@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARCHIVE // 3D-PRINT LIBRARY</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #05070c; --bg2: #0a0f1a; --grid: #131b2b;
+    --cyan: #00fff2; --magenta: #ff2079; --amber: #ffb300;
+    --text: #d7f4ff; --dim: #5c7a8c;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{ background: var(--bg); color: var(--text); font-family:'Rajdhani',sans-serif; min-height:100vh; }
+  body{
+    background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  body::before{
+    content:""; position:fixed; inset:0;
+    background: radial-gradient(ellipse at 50% -10%, rgba(0,255,242,0.08), transparent 60%),
+                radial-gradient(ellipse at 100% 100%, rgba(255,32,121,0.08), transparent 55%);
+    pointer-events:none; z-index:0;
+  }
+  .scanlines{ position:fixed; inset:0; z-index:50; pointer-events:none; mix-blend-mode:overlay;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 3px); }
+
+  .wrap{ position:relative; z-index:1; max-width:1200px; margin:0 auto; padding:24px 16px 60px; }
+
+  header{ display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:20px;}
+  .tag{ font-family:'Share Tech Mono',monospace; color:var(--cyan); font-size:12px; letter-spacing:3px; display:flex; align-items:center; gap:10px;}
+  .tag::before{ content:""; width:8px; height:8px; background:var(--cyan); box-shadow:0 0 8px var(--cyan),0 0 16px var(--cyan); animation: blink 1.6s infinite steps(2);}
+  @keyframes blink{ 50%{opacity:.15;} }
+  h1{ font-family:'Orbitron',sans-serif; font-weight:900; font-size:clamp(24px,5vw,38px); letter-spacing:1px; margin:8px 0 2px;
+    background: linear-gradient(90deg,#fff,var(--cyan) 60%,var(--magenta)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .stats{ font-family:'Share Tech Mono',monospace; font-size:12px; color:var(--dim); text-align:right; line-height:1.6;}
+  .stats b{ color:var(--magenta); font-weight:400; }
+
+  .toolbar{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:18px; align-items:center; }
+  input[type=text]{
+    background:var(--bg2); border:1px solid var(--grid); color:var(--text);
+    font-family:'Share Tech Mono',monospace; font-size:13px; padding:10px 14px; flex:1; min-width:180px;
+  }
+  input[type=text]:focus{ outline:none; border-color:var(--cyan); }
+  select, button{
+    background:var(--bg2); border:1px solid var(--grid); color:var(--text);
+    font-family:'Share Tech Mono',monospace; font-size:12px; padding:10px 12px; cursor:pointer; letter-spacing:1px;
+  }
+  button.primary{ border-color:var(--cyan); color:var(--cyan); }
+  button.primary:hover{ background:var(--cyan); color:#000; }
+  button:hover{ border-color:var(--cyan); }
+
+  .rule{ height:1px; margin:18px 0; background:linear-gradient(90deg,var(--cyan),transparent 40%,var(--magenta) 100%); opacity:.5; }
+
+  .layout{ display:flex; gap:20px; align-items:flex-start; }
+  .sidebar{
+    width:220px; flex-shrink:0; background:var(--bg2); border:1px solid var(--grid);
+    padding:14px; position:sticky; top:16px;
+  }
+  .sidebar h3{
+    font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--dim); letter-spacing:2px;
+    margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--grid);
+  }
+  .folder-tree{ font-family:'Share Tech Mono',monospace; font-size:12.5px; }
+  .folder-row{
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+    padding:6px 8px; cursor:pointer; color:var(--text); border-left:2px solid transparent;
+  }
+  .folder-row:hover{ color:var(--cyan); }
+  .folder-row.active{ color:var(--cyan); border-left-color:var(--cyan); background:rgba(0,255,242,0.06); }
+  .folder-row .count{ color:var(--dim); font-size:10.5px; }
+  .folder-children{ margin-left:12px; border-left:1px dashed var(--grid); }
+  .main-col{ flex:1; min-width:0; }
+
+  @media (max-width: 760px){
+    .layout{ flex-direction:column; }
+    .sidebar{ width:100%; position:static; }
+  }
+
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px; }
+  .card{
+    position:relative; background:linear-gradient(180deg,var(--bg2),#060910); border:1px solid var(--grid);
+    padding:0; cursor:pointer; transition:border-color .2s ease, transform .15s ease;
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  }
+  .card:hover{ border-color:var(--cyan); transform:translateY(-2px); }
+  .thumb{ width:100%; aspect-ratio:1/1; background:#04060a; display:flex; align-items:center; justify-content:center;
+    border-bottom:1px solid var(--grid); overflow:hidden; }
+  .thumb img{ width:100%; height:100%; object-fit:cover; }
+  .thumb .ext-badge{ font-family:'Orbitron',sans-serif; font-size:22px; font-weight:900; color:var(--grid); letter-spacing:1px; }
+  .card-body{ padding:12px 14px 14px; }
+  .card-name{ font-family:'Orbitron',sans-serif; font-size:13px; color:#fff; margin-bottom:6px; word-break:break-word; }
+  .card-meta{ font-family:'Share Tech Mono',monospace; font-size:10.5px; color:var(--dim); display:flex; justify-content:space-between; }
+  .card-tags{ display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+  .chip{ font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--magenta); border:1px solid var(--magenta); padding:2px 6px; opacity:.85; }
+
+  .empty{ font-family:'Share Tech Mono',monospace; color:var(--dim); padding:60px 0; text-align:center; letter-spacing:1px; }
+
+  /* modal */
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:100; display:none; align-items:center; justify-content:center; padding:16px; }
+  .modal-backdrop.open{ display:flex; }
+  .modal{
+    background:var(--bg2); border:1px solid var(--cyan); max-width:820px; width:100%; max-height:92vh; overflow:auto;
+    box-shadow:0 0 40px rgba(0,255,242,.15);
+  }
+  .modal-head{ display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid var(--grid); }
+  .modal-head h2{ font-family:'Orbitron',sans-serif; font-size:16px; color:#fff; }
+  .close-btn{ background:none; border:none; color:var(--dim); font-size:22px; cursor:pointer; line-height:1; }
+  .close-btn:hover{ color:var(--magenta); }
+  #viewer{ width:100%; height:360px; background:#04060a; }
+  .modal-body{ padding:16px 18px 20px; }
+  .modal-meta{ font-family:'Share Tech Mono',monospace; font-size:12px; color:var(--dim); margin-bottom:14px; display:flex; flex-wrap:wrap; gap:6px 18px; }
+  .modal-meta b{ color:var(--cyan); font-weight:400; }
+  .modal-actions{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
+  .tag-editor{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .tag-editor input{ max-width:160px; }
+  .hint{ font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--dim); margin-top:10px; line-height:1.5; border-top:1px dashed var(--grid); padding-top:10px; }
+
+  footer{ margin-top:36px; font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--dim); letter-spacing:1px; border-top:1px solid var(--grid); padding-top:14px; }
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="tag">SYS://LOCAL-SERVER · SELF-HOSTED</div>
+      <h1>3D-PRINT ARCHIVE</h1>
+    </div>
+    <div class="stats" id="stats">lädt…</div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <h3>KATEGORIEN</h3>
+      <div class="folder-tree" id="folderTree"></div>
+      <div style="font-family:'Share Tech Mono',monospace; font-size:10.5px; color:var(--dim); margin-top:12px; line-height:1.5;">
+        Kategorien = Unterordner in deiner Bibliothek. Leg im Share einfach neue Ordner an
+        (z.B. „Vasen“, „Mechanik/Zahnräder“) — nach RESCAN erscheinen sie hier automatisch.
+      </div>
+    </aside>
+
+    <div class="main-col">
+      <div class="toolbar">
+        <input type="text" id="search" placeholder="SUCHE // dateiname…">
+        <select id="extFilter">
+          <option value="">alle formate</option>
+          <option value="stl">STL</option>
+          <option value="obj">OBJ</option>
+          <option value="3mf">3MF</option>
+        </select>
+        <select id="tagFilter"><option value="">alle tags</option></select>
+        <button class="primary" id="rescanBtn">↻ RESCAN</button>
+      </div>
+
+      <div class="rule"></div>
+
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="empty" style="display:none">KEINE DATEIEN GEFUNDEN — Bibliotheksordner prüfen oder RESCAN drücken</div>
+    </div>
+  </div>
+
+  <footer>
+    ARCHIVE NODE — Modelle liegen unverändert im gemounteten Bibliotheksordner. Diese App liest und indiziert nur.
+  </footer>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modalTitle">—</h2>
+      <button class="close-btn" id="closeModal">×</button>
+    </div>
+    <div id="viewer"></div>
+    <div class="modal-body">
+      <div class="modal-meta" id="modalMeta"></div>
+      <div class="modal-actions">
+        <a id="orcaBtn" href="#"><button class="primary">⇢ IN ORCASLICER ÖFFNEN</button></a>
+        <a id="downloadBtn" href="#" download><button>⇩ DOWNLOAD</button></a>
+        <button id="rawBtn">↗ RAW-DATEI IN NEUEM TAB</button>
+      </div>
+      <div class="tag-editor">
+        <input type="text" id="newTag" placeholder="tag hinzufügen…">
+        <button id="addTagBtn">+ TAG</button>
+      </div>
+      <div class="card-tags" id="modalTags" style="margin-top:10px;"></div>
+      <div class="hint">
+        "IN ORCASLICER ÖFFNEN" nutzt das <code>orcaslicer://open?file=…</code>-Protokoll, das die
+        OrcaSlicer-Desktop-App auf Windows/Mac registriert (dasselbe, was Printables' "Open in Slicer"
+        nutzt) — OrcaSlicer muss installiert und einmal gestartet worden sein, dein Server muss im
+        selben Netz erreichbar sein. Auf manchen Linux-Distros (v. a. KDE) ist die Protokoll-Registrierung
+        unzuverlässig — dann hilft nur DOWNLOAD + manuell in OrcaSlicer importieren.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

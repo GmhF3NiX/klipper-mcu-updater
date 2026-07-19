@@ -1,0 +1,14 @@
+services:
+  printarchive:
+    build: .
+    container_name: printarchive
+    restart: unless-stopped
+    ports:
+      - "8420:8420"
+    environment:
+      - PUID=99          # unraid: 99 = 'nobody', anpassen falls nötig
+      - PGID=100          # unraid: 100 = 'users'
+      - RESCAN_INTERVAL_MINUTES=15
+    volumes:
+      - /mnt/user/3D-Drucke:/library      # <- deinen unraid share hier eintragen
+      - ./config:/config                  # DB + Thumbnail-Cache, persistent

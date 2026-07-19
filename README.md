@@ -347,6 +347,10 @@ Install Mainsail macros? (yes/no): yes
 Running initial MCU scan...
 ```
 
+## Related Projects
+
+- [`printarchive/`](printarchive/) - Self-hosted STL/3MF/OBJ model library with a browser-based 3D viewer and slicer handoff. Standalone Node.js app, no Klipper/Moonraker integration.
+
 ## License
 
 Copyright (c) 2026 GmhF3NiX. All rights reserved.
