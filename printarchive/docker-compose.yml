@@ -10,5 +10,6 @@ services:
       - PGID=100          # unraid: 100 = 'users'
       - RESCAN_INTERVAL_MINUTES=15
     volumes:
-      - /mnt/user/3D-Drucke:/library      # <- deinen unraid share hier eintragen
-      - ./config:/config                  # DB + Thumbnail-Cache, persistent
+      - /mnt/user/3D Printing/STL:/library  # <- deinen unraid share hier eintragen (primäre Bibliothek)
+      - /mnt/user:/hostshares:ro            # read-only, damit im UI weitere Ordner (z.B. andere Shares) hinzufügbar sind
+      - ./config:/config                    # DB + Thumbnail-Cache, persistent

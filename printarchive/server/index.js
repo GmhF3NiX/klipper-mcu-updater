@@ -5,10 +5,12 @@ const db = require('./db');
 const { scanLibrary, LIBRARY_PATH, THUMB_DIR } = require('./scanner');
 const { getSetting, setSetting } = require('./settings');
 const ha = require('./homeassistant');
+const spoolman = require('./spoolman');
+const { estimate } = require('./estimate');
 
 const PORT = process.env.PORT || 8420;
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '5mb' })); // Thumbnail-Screenshots vom Client kommen als Base64-JSON
 
 // ---- static frontend ----
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -34,7 +36,9 @@ function fileWithTags(row) {
 app.get('/api/stats', (req, res) => {
   const total = db.prepare(`SELECT COUNT(*) c FROM files`).get().c;
   const byExt = db.prepare(`SELECT ext, COUNT(*) c FROM files GROUP BY ext`).all();
-  res.json({ total, byExt, libraryPath: LIBRARY_PATH });
+  const totalSizeBytes = db.prepare(`SELECT COALESCE(SUM(size_bytes), 0) s FROM files`).get().s;
+  const categories = db.prepare(`SELECT COUNT(*) c FROM categories`).get().c;
+  res.json({ total, byExt, totalSizeBytes, categories, libraryPath: LIBRARY_PATH });
 });
 
 app.get('/api/files', (req, res) => {
@@ -129,7 +133,7 @@ app.get('/api/files/:id/thumbnail', (req, res) => {
 app.get('/api/files/:id/raw', (req, res) => {
   const row = db.prepare(`SELECT * FROM files WHERE id = ?`).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'not_found' });
-  const absPath = path.join(LIBRARY_PATH, row.rel_path);
+  const absPath = row.abs_path || path.join(LIBRARY_PATH, row.rel_path);
   if (!fs.existsSync(absPath)) return res.status(404).json({ error: 'file_missing_on_disk' });
 
   const download = req.query.download === '1';
@@ -137,6 +141,21 @@ app.get('/api/files/:id/raw', (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${row.filename}"`);
   }
   res.sendFile(absPath);
+});
+
+// Client-seitig erzeugter Screenshot des 3D-Viewers (STL/OBJ haben kein eingebettetes
+// Vorschaubild wie 3MF, siehe scanner.js) — wird als echtes Thumbnail übernommen.
+app.post('/api/files/:id/thumbnail', (req, res) => {
+  const row = db.prepare(`SELECT id FROM files WHERE id = ?`).get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+
+  const match = /^data:image\/png;base64,(.+)$/.exec(req.body.image || '');
+  if (!match) return res.status(400).json({ error: 'invalid_image' });
+
+  const outName = `${row.id}.png`;
+  fs.writeFileSync(path.join(THUMB_DIR, outName), Buffer.from(match[1], 'base64'));
+  db.prepare(`UPDATE files SET thumbnail = ? WHERE id = ?`).run(outName, row.id);
+  res.json({ ok: true });
 });
 
 app.post('/api/files/:id/tags', (req, res) => {
@@ -209,24 +228,26 @@ app.delete('/api/files/:id/categories/:categoryId', (req, res) => {
   res.json({ ok: true });
 });
 
-// ---- settings (Strompreis + Home-Assistant-Zugang) ----
+// ---- settings (Strompreis + Home-Assistant-Zugang + Spoolman) ----
 app.get('/api/settings', (req, res) => {
   res.json({
     power_price_eur_per_kwh: getSetting('power_price_eur_per_kwh', '0.35'),
     ha_base_url: getSetting('ha_base_url', ''),
     ha_energy_entity_id: getSetting('ha_energy_entity_id', ''),
     ha_token_set: Boolean(getSetting('ha_token')),
+    spoolman_base_url: getSetting('spoolman_base_url', ''),
   });
 });
 
 app.post('/api/settings', (req, res) => {
-  const { power_price_eur_per_kwh, ha_base_url, ha_energy_entity_id, ha_token } = req.body;
+  const { power_price_eur_per_kwh, ha_base_url, ha_energy_entity_id, ha_token, spoolman_base_url } = req.body;
   if (power_price_eur_per_kwh !== undefined) setSetting('power_price_eur_per_kwh', String(power_price_eur_per_kwh));
   if (ha_base_url !== undefined) setSetting('ha_base_url', String(ha_base_url).trim());
   if (ha_energy_entity_id !== undefined) setSetting('ha_energy_entity_id', String(ha_energy_entity_id).trim());
   // Token nur überschreiben, wenn tatsächlich ein neuer eingegeben wurde —
   // sonst bliebe das Feld beim Speichern anderer Settings sonst leer.
   if (ha_token) setSetting('ha_token', String(ha_token).trim());
+  if (spoolman_base_url !== undefined) setSetting('spoolman_base_url', String(spoolman_base_url).trim());
   res.json({ ok: true });
 });
 
@@ -242,6 +263,28 @@ app.get('/api/settings/test-ha', async (req, res) => {
     res.json({ ok: true, state: state.state, unit: state.attributes?.unit_of_measurement || '' });
   } catch (err) {
     res.json({ ok: false, error: err.message });
+  }
+});
+
+// ---- Spoolman (Spulen-Auswahl + automatischer Preis/kg, siehe /api/print-jobs/:id/material) ----
+app.get('/api/settings/test-spoolman', async (req, res) => {
+  const baseUrl = getSetting('spoolman_base_url');
+  if (!baseUrl) return res.json({ ok: false, error: 'spoolman_not_configured' });
+  try {
+    const spools = await spoolman.fetchSpools(baseUrl);
+    res.json({ ok: true, count: spools.length });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/spoolman/spools', async (req, res) => {
+  const baseUrl = getSetting('spoolman_base_url');
+  if (!baseUrl) return res.json([]);
+  try {
+    res.json(await spoolman.fetchSpools(baseUrl));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
 });
 
@@ -290,21 +333,183 @@ app.post('/api/print-jobs/:id/stop', async (req, res) => {
   res.json(db.prepare(`SELECT * FROM print_jobs WHERE id = ?`).get(req.params.id));
 });
 
-app.post('/api/print-jobs/:id/material', (req, res) => {
+app.post('/api/print-jobs/:id/material', async (req, res) => {
   const grams = req.body.filament_grams !== '' && req.body.filament_grams != null ? Number(req.body.filament_grams) : null;
-  const pricePerKg = req.body.filament_price_per_kg !== '' && req.body.filament_price_per_kg != null ? Number(req.body.filament_price_per_kg) : null;
+  let pricePerKg = req.body.filament_price_per_kg !== '' && req.body.filament_price_per_kg != null ? Number(req.body.filament_price_per_kg) : null;
+  const spoolId = req.body.spool_id !== '' && req.body.spool_id != null ? Number(req.body.spool_id) : null;
+
+  let filamentError = null;
+  if (spoolId != null) {
+    const baseUrl = getSetting('spoolman_base_url');
+    if (!baseUrl) {
+      filamentError = 'spoolman_not_configured';
+    } else {
+      try {
+        // Preis/kg immer frisch von Spoolman holen statt dem, was das UI zuletzt anzeigte —
+        // Spulenpreise/-zuordnungen können sich zwischen Öffnen und Speichern geändert haben.
+        const spool = await spoolman.fetchOneSpool(baseUrl, spoolId);
+        if (spool.price_per_kg != null) pricePerKg = spool.price_per_kg;
+        if (grams != null) await spoolman.useSpool(baseUrl, spoolId, grams);
+      } catch (err) {
+        filamentError = err.message;
+      }
+    }
+  }
+
   const filamentCost = (grams != null && pricePerKg != null) ? (grams / 1000) * pricePerKg : null;
 
   db.prepare(`
-    UPDATE print_jobs SET filament_grams = ?, filament_price_per_kg = ?, filament_cost = ?
+    UPDATE print_jobs SET filament_grams = ?, filament_price_per_kg = ?, filament_cost = ?, spoolman_spool_id = ?, filament_error = ?
     WHERE id = ?
-  `).run(grams, pricePerKg, filamentCost, req.params.id);
+  `).run(grams, pricePerKg, filamentCost, spoolId, filamentError, req.params.id);
 
   res.json(db.prepare(`SELECT * FROM print_jobs WHERE id = ?`).get(req.params.id));
 });
 
 app.delete('/api/print-jobs/:id', (req, res) => {
   db.prepare(`DELETE FROM print_jobs WHERE id = ?`).run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ---- Druckprofile (für die Kosten-VOR-Schätzung per Faustformel) ----
+app.get('/api/cost-profiles', (req, res) => {
+  res.json(db.prepare(`SELECT * FROM cost_profiles ORDER BY name`).all());
+});
+
+app.post('/api/cost-profiles', (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name_required' });
+
+  const info = db.prepare(`
+    INSERT INTO cost_profiles
+      (name, layer_height_mm, infill_percent, wall_count, nozzle_diameter_mm, top_bottom_layers,
+       print_speed_mm_s, speed_overhead_factor, printer_power_watts, filament_density_g_cm3,
+       filament_price_eur_per_kg, created_at)
+    VALUES (@name, @layer_height_mm, @infill_percent, @wall_count, @nozzle_diameter_mm, @top_bottom_layers,
+       @print_speed_mm_s, @speed_overhead_factor, @printer_power_watts, @filament_density_g_cm3,
+       @filament_price_eur_per_kg, @created_at)
+  `).run({
+    name,
+    layer_height_mm: Number(req.body.layer_height_mm) || 0.2,
+    infill_percent: Number(req.body.infill_percent) || 15,
+    wall_count: Number(req.body.wall_count) || 3,
+    nozzle_diameter_mm: Number(req.body.nozzle_diameter_mm) || 0.4,
+    top_bottom_layers: Number(req.body.top_bottom_layers) || 4,
+    print_speed_mm_s: Number(req.body.print_speed_mm_s) || 60,
+    speed_overhead_factor: Number(req.body.speed_overhead_factor) || 1.3,
+    printer_power_watts: Number(req.body.printer_power_watts) || 150,
+    filament_density_g_cm3: Number(req.body.filament_density_g_cm3) || 1.24,
+    filament_price_eur_per_kg: Number(req.body.filament_price_eur_per_kg) || 25,
+    created_at: Date.now(),
+  });
+  res.json(db.prepare(`SELECT * FROM cost_profiles WHERE id = ?`).get(info.lastInsertRowid));
+});
+
+app.delete('/api/cost-profiles/:id', (req, res) => {
+  db.prepare(`DELETE FROM cost_profiles WHERE id = ?`).run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ---- Kosten-VOR-Schätzung pro Datei (Faustformel aus Modellgeometrie + Profil, kein Slicing) ----
+app.get('/api/files/:id/estimate', (req, res) => {
+  res.json(db.prepare(`SELECT * FROM file_estimates WHERE file_id = ?`).get(req.params.id) || null);
+});
+
+app.post('/api/files/:id/estimate', async (req, res) => {
+  const file = db.prepare(`SELECT id FROM files WHERE id = ?`).get(req.params.id);
+  if (!file) return res.status(404).json({ error: 'not_found' });
+
+  const { volumeMm3, surfaceAreaMm2, bboxX, bboxY, profileId, spoolId } = req.body;
+  if (!volumeMm3 || !surfaceAreaMm2) return res.status(400).json({ error: 'geometry_required' });
+
+  const profile = (profileId && db.prepare(`SELECT * FROM cost_profiles WHERE id = ?`).get(profileId))
+    || db.prepare(`SELECT * FROM cost_profiles ORDER BY id LIMIT 1`).get();
+  if (!profile) return res.status(400).json({ error: 'no_profile' });
+
+  let densityGCm3 = profile.filament_density_g_cm3;
+  let priceEurPerKg = profile.filament_price_eur_per_kg;
+
+  if (spoolId) {
+    const baseUrl = getSetting('spoolman_base_url');
+    if (baseUrl) {
+      try {
+        const spool = await spoolman.fetchOneSpool(baseUrl, spoolId);
+        if (spool.density_g_cm3 != null) densityGCm3 = spool.density_g_cm3;
+        if (spool.price_per_kg != null) priceEurPerKg = spool.price_per_kg;
+      } catch {
+        // Spoolman gerade nicht erreichbar -> auf Profil-Werte zurückfallen, Schätzung trotzdem liefern
+      }
+    }
+  }
+
+  const powerPrice = parseFloat(getSetting('power_price_eur_per_kwh', '0.35')) || 0;
+  const result = estimate({
+    volumeMm3, surfaceAreaMm2, bboxX: bboxX || 0, bboxY: bboxY || 0,
+    profile, densityGCm3, priceEurPerKg, powerPriceEurPerKwh: powerPrice,
+  });
+
+  db.prepare(`
+    INSERT INTO file_estimates (file_id, profile_id, spool_id, filament_grams, print_minutes, filament_cost, energy_cost, total_cost, updated_at)
+    VALUES (@file_id, @profile_id, @spool_id, @filament_grams, @print_minutes, @filament_cost, @energy_cost, @total_cost, @updated_at)
+    ON CONFLICT(file_id) DO UPDATE SET
+      profile_id = excluded.profile_id, spool_id = excluded.spool_id, filament_grams = excluded.filament_grams,
+      print_minutes = excluded.print_minutes, filament_cost = excluded.filament_cost, energy_cost = excluded.energy_cost,
+      total_cost = excluded.total_cost, updated_at = excluded.updated_at
+  `).run({
+    file_id: req.params.id, profile_id: profile.id, spool_id: spoolId || null,
+    filament_grams: result.filamentGrams, print_minutes: result.printMinutes,
+    filament_cost: result.filamentCost, energy_cost: result.energyCost, total_cost: result.totalCost,
+    updated_at: Date.now(),
+  });
+
+  res.json(db.prepare(`SELECT * FROM file_estimates WHERE file_id = ?`).get(req.params.id));
+});
+
+// ---- weitere Bibliotheks-Wurzeln (zusätzliche Ordner unter dem read-only /hostshares-Mount) ----
+const HOSTSHARES_PATH = process.env.HOSTSHARES_PATH || '/hostshares';
+
+app.get('/api/library-roots', (req, res) => {
+  const roots = db.prepare(`SELECT * FROM library_roots ORDER BY id`).all();
+  const counts = db.prepare(`SELECT root_id, COUNT(*) c FROM files GROUP BY root_id`).all();
+  const countByRoot = Object.fromEntries(counts.map(c => [c.root_id, c.c]));
+  res.json(roots.map(r => ({
+    ...r,
+    isPrimary: r.path === LIBRARY_PATH,
+    fileCount: countByRoot[r.id] || 0,
+  })));
+});
+
+app.post('/api/library-roots', (req, res) => {
+  const label = (req.body.label || '').trim();
+  const subpath = (req.body.subpath || '').trim();
+  if (!label || !subpath) return res.status(400).json({ error: 'label_and_subpath_required' });
+
+  const resolved = path.resolve(HOSTSHARES_PATH, subpath);
+  if (!resolved.startsWith(path.resolve(HOSTSHARES_PATH) + path.sep)) {
+    return res.status(400).json({ error: 'path_outside_hostshares' });
+  }
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    return res.status(400).json({ error: 'not_a_directory' });
+  }
+
+  try {
+    const info = db.prepare(`INSERT INTO library_roots (path, label, added_at) VALUES (?, ?, ?)`)
+      .run(resolved, label, Date.now());
+    const scanResult = scanLibrary();
+    res.json({ ok: true, root: db.prepare(`SELECT * FROM library_roots WHERE id = ?`).get(info.lastInsertRowid), ...scanResult });
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) return res.status(409).json({ error: 'path_already_added' });
+    throw err;
+  }
+});
+
+app.delete('/api/library-roots/:id', (req, res) => {
+  const root = db.prepare(`SELECT * FROM library_roots WHERE id = ?`).get(req.params.id);
+  if (!root) return res.status(404).json({ error: 'not_found' });
+  if (root.path === LIBRARY_PATH) return res.status(400).json({ error: 'cannot_delete_primary_root' });
+
+  db.prepare(`DELETE FROM files WHERE root_id = ?`).run(root.id);
+  db.prepare(`DELETE FROM library_roots WHERE id = ?`).run(root.id);
   res.json({ ok: true });
 });
 

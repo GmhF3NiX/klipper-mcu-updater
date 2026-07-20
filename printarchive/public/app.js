@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const grid = document.getElementById('grid');
 const emptyMsg = document.getElementById('empty');
-const statsEl = document.getElementById('stats');
+const statTilesEl = document.getElementById('statTiles');
 const searchInput = document.getElementById('search');
 const extFilter = document.getElementById('extFilter');
 const tagFilter = document.getElementById('tagFilter');
@@ -27,10 +27,18 @@ function fmtBytes(n) {
   return (n / 1024 ** 2).toFixed(1) + ' MB';
 }
 
+function fmtGb(bytes) {
+  return (bytes / 1024 ** 3).toFixed(1);
+}
+
 async function loadStats() {
   const s = await fetch('/api/stats').then(r => r.json());
-  const parts = s.byExt.map(e => `${e.ext.toUpperCase()}:<b>${e.c}</b>`).join('  ');
-  statsEl.innerHTML = `${s.total} DATEIEN — ${parts}<br>${s.libraryPath}`;
+  statTilesEl.innerHTML = `
+    <div class="stat-tile" style="--tile-color:var(--magenta)"><div class="num">${s.total}</div><div class="label">Dateien</div></div>
+    <div class="stat-tile" style="--tile-color:var(--cyan)"><div class="num">${fmtGb(s.totalSizeBytes)}</div><div class="label">GB Bibliothek</div></div>
+    <div class="stat-tile" style="--tile-color:var(--amber)"><div class="num">${s.categories}</div><div class="label">Kategorien</div></div>
+  `;
+  statTilesEl.title = s.byExt.map(e => `${e.ext.toUpperCase()}: ${e.c}`).join(' · ') + `\n${s.libraryPath}`;
 }
 
 async function loadTags() {
@@ -39,11 +47,36 @@ async function loadTags() {
     tags.map(t => `<option value="${t}">${t}</option>`).join('');
 }
 
-function renderFolderNode(node, depth) {
+// Ordner werden standardmäßig eingeklappt gerendert (bei tief verschachtelten Bibliotheken
+// sonst komplett unübersichtlich) — nur die Vorfahren des gerade aktiven Ordners bleiben offen,
+// alles andere klappt man per Klick auf das Pfeilchen selbst auf.
+let expandedFolders = new Set();
+
+function isAncestorOfActive(path) {
+  if (path === '' || path === activeFolder) return true;
+  return activeFolder.startsWith(path + '/');
+}
+
+function renderFolderNode(node) {
+  const hasChildren = node.children && node.children.length > 0;
+  const isExpanded = hasChildren && (expandedFolders.has(node._filterValue) || isAncestorOfActive(node._filterValue));
+
   const row = document.createElement('div');
   row.className = 'folder-row' + (activeFolder === node._filterValue ? ' active' : '');
-  row.innerHTML = `<span>${node.label}</span><span class="count">${node.count}</span>`;
-  row.addEventListener('click', () => {
+  row.innerHTML = `
+    <span class="folder-label">
+      <span class="folder-caret" style="${hasChildren ? '' : 'visibility:hidden'}">${isExpanded ? '▾' : '▸'}</span>
+      <span class="folder-name">${node.label}</span>
+    </span>
+    <span class="count">${node.count}</span>
+  `;
+  row.addEventListener('click', (e) => {
+    if (hasChildren && e.target.classList.contains('folder-caret')) {
+      if (expandedFolders.has(node._filterValue)) expandedFolders.delete(node._filterValue);
+      else expandedFolders.add(node._filterValue);
+      loadFolders();
+      return;
+    }
     activeFolder = node._filterValue;
     loadFiles();
     loadFolders();
@@ -52,10 +85,10 @@ function renderFolderNode(node, depth) {
   const wrap = document.createElement('div');
   wrap.appendChild(row);
 
-  if (node.children && node.children.length) {
+  if (isExpanded) {
     const childWrap = document.createElement('div');
     childWrap.className = 'folder-children';
-    node.children.forEach(c => childWrap.appendChild(renderFolderNode(c, depth + 1)));
+    node.children.forEach(c => childWrap.appendChild(renderFolderNode(c)));
     wrap.appendChild(childWrap);
   }
   return wrap;
@@ -196,6 +229,77 @@ rescanBtn.addEventListener('click', async () => {
   rescanBtn.disabled = false;
 });
 
+// ---------- weitere Bibliotheks-Ordner (zusätzliche Wurzeln unter /hostshares) ----------
+const manageRootsBtn = document.getElementById('manageRootsBtn');
+const rootsBackdrop = document.getElementById('rootsBackdrop');
+const closeRootsBtn = document.getElementById('closeRoots');
+const rootsListEl = document.getElementById('rootsList');
+const nrLabelInput = document.getElementById('nrLabel');
+const nrSubpathInput = document.getElementById('nrSubpath');
+const createRootBtn = document.getElementById('createRootBtn');
+const rootsStatus = document.getElementById('rootsStatus');
+
+async function renderRootsList() {
+  const roots = await fetch('/api/library-roots').then(r => r.json());
+  rootsListEl.innerHTML = roots.map(r => `
+    <div class="profile-row" data-id="${r.id}">
+      <span>${r.isPrimary ? '◆ ' : ''}${r.label} — ${r.fileCount} Datei(en)<br>
+        <span style="color:var(--dim); font-size:10px;">${r.path}</span></span>
+      ${r.isPrimary ? '' : '<button class="pdel" title="Ordner entfernen (Dateien werden aus der Bibliothek entfernt, nicht gelöscht)">×</button>'}
+    </div>
+  `).join('');
+
+  rootsListEl.querySelectorAll('.profile-row .pdel').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const row = e.target.closest('.profile-row');
+      if (!confirm('Ordner aus der Bibliothek entfernen? Die Dateien auf der Platte bleiben unangetastet.')) return;
+      await fetch(`/api/library-roots/${row.dataset.id}`, { method: 'DELETE' });
+      await renderRootsList();
+      await Promise.all([loadFiles(), loadStats(), loadFolders()]);
+    });
+  });
+}
+
+manageRootsBtn.addEventListener('click', async () => {
+  rootsStatus.textContent = '';
+  await renderRootsList();
+  rootsBackdrop.classList.add('open');
+});
+closeRootsBtn.addEventListener('click', () => rootsBackdrop.classList.remove('open'));
+rootsBackdrop.addEventListener('click', (e) => { if (e.target === rootsBackdrop) rootsBackdrop.classList.remove('open'); });
+
+createRootBtn.addEventListener('click', async () => {
+  const label = nrLabelInput.value.trim();
+  const subpath = nrSubpathInput.value.trim();
+  if (!label || !subpath) return;
+  createRootBtn.disabled = true;
+  rootsStatus.textContent = 'scanne…';
+  rootsStatus.className = 'ha-status';
+  const res = await fetch('/api/library-roots', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label, subpath }),
+  });
+  const data = await res.json();
+  createRootBtn.disabled = false;
+  if (res.ok) {
+    rootsStatus.textContent = `✓ hinzugefügt — ${data.count} Dateien insgesamt`;
+    rootsStatus.className = 'ha-status ok';
+    nrLabelInput.value = '';
+    nrSubpathInput.value = '';
+    await renderRootsList();
+    await Promise.all([loadFiles(), loadStats(), loadFolders()]);
+  } else {
+    const messages = {
+      not_a_directory: 'Pfad existiert nicht oder ist kein Ordner (relativ zu /mnt/user)',
+      path_outside_hostshares: 'Pfad liegt außerhalb von /mnt/user',
+      path_already_added: 'Dieser Ordner ist schon in der Bibliothek',
+      label_and_subpath_required: 'Name und Pfad ausfüllen',
+    };
+    rootsStatus.textContent = `✗ ${messages[data.error] || data.error}`;
+    rootsStatus.className = 'ha-status err';
+  }
+});
+
 // ---------- modal + 3D viewer ----------
 const modalBackdrop = document.getElementById('modalBackdrop');
 const modalTitle = document.getElementById('modalTitle');
@@ -220,7 +324,9 @@ function initViewer() {
   camera = new THREE.PerspectiveCamera(45, viewerEl.clientWidth / viewerEl.clientHeight, 0.1, 5000);
   camera.position.set(60, 60, 60);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  // preserveDrawingBuffer: ohne das liefert toDataURL() (für die Auto-Thumbnails weiter unten)
+  // je nach Browser einen bereits geleerten/falschen Buffer statt des gerenderten Bildes.
+  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(viewerEl.clientWidth, viewerEl.clientHeight);
   viewerEl.innerHTML = '';
   viewerEl.appendChild(renderer.domElement);
@@ -231,11 +337,9 @@ function initViewer() {
   dir.position.set(1, 1, 1);
   scene.add(dir);
 
-  const grid3d = new THREE.GridHelper(200, 20, 0xff2079, 0x131b2b);
-  scene.add(grid3d);
-
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
+  controls.zoomSpeed = 3; // Standard (1) fühlte sich beim Scrollen viel zu fein/langsam an
 
   animate();
 }
@@ -270,7 +374,154 @@ function clearMesh() {
 }
 
 const materialCyber = new THREE.MeshStandardMaterial({
-  color: 0x00fff2, metalness: 0.15, roughness: 0.35, flatShading: false,
+  color: 0xf0575a, metalness: 0.15, roughness: 0.35, flatShading: false,
+});
+
+// STL/OBJ haben nie ein eingebettetes Vorschaubild (anders als 3MF, siehe scanner.js) — sobald
+// der Viewer das Modell fertig gerahmt hat, schnappen wir uns stattdessen einen Screenshot des
+// Canvas und speichern ihn serverseitig als Thumbnail. Läuft auch als Fallback für 3MF-Dateien,
+// deren eingebettetes Preview-PNG sich nicht extrahieren ließ.
+// Der Viewer-Canvas ist nicht quadratisch (volle Modal-Breite × 360px) — mittig auf ein
+// Quadrat zuschneiden statt das per CSS object-fit:cover unkontrolliert verzerren/abschneiden
+// zu lassen, damit das Objekt im Grid mittig und vollständig zu sehen ist.
+function canvasToSquareDataUrl(canvas, outSize = 512) {
+  const size = Math.min(canvas.width, canvas.height);
+  const sx = (canvas.width - size) / 2;
+  const sy = (canvas.height - size) / 2;
+  const out = document.createElement('canvas');
+  out.width = outSize;
+  out.height = outSize;
+  out.getContext('2d').drawImage(canvas, sx, sy, size, size, 0, 0, outSize, outSize);
+  return out.toDataURL('image/png');
+}
+
+async function uploadThumbnail(fileId, dataUrl) {
+  const res = await fetch(`/api/files/${fileId}/thumbnail`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: dataUrl }),
+  });
+  return res.ok;
+}
+
+function maybeCaptureThumbnail(f) {
+  if (f.thumbnail) return;
+  requestAnimationFrame(() => requestAnimationFrame(async () => {
+    if (currentFile?.id !== f.id) return; // Modal wurde inzwischen gewechselt/geschlossen
+    renderer.render(scene, camera); // sicherstellen, dass der Buffer den aktuellen Frame zeigt
+    const dataUrl = canvasToSquareDataUrl(renderer.domElement);
+    try {
+      if (await uploadThumbnail(f.id, dataUrl)) {
+        f.thumbnail = 'generated';
+        loadFiles();
+      }
+    } catch {
+      // beste Bemühung — kein Vorschaubild ist kein kritischer Fehler
+    }
+  }));
+}
+
+// ---------- Batch-Generierung für alle Dateien ohne Vorschaubild ----------
+// Läuft in einem eigenen Offscreen-Renderer (unabhängig vom Modal-Viewer), damit man nicht
+// jede der >1000 Dateien einzeln öffnen muss, nur um ein Thumbnail zu bekommen.
+const genThumbsBtn = document.getElementById('genThumbsBtn');
+const genThumbsStatus = document.getElementById('genThumbsStatus');
+let batchScene, batchCamera, batchRenderer, batchRunning = false;
+
+function initBatchRenderer() {
+  batchScene = new THREE.Scene();
+  batchScene.background = new THREE.Color(0x04060a);
+  batchCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
+  batchRenderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  batchRenderer.setSize(320, 320);
+  batchScene.add(new THREE.HemisphereLight(0x88ffff, 0x220022, 1.1));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(1, 1, 1);
+  batchScene.add(dir);
+}
+
+function loadObjectForBatch(f) {
+  const url = `/api/files/${f.id}/raw`;
+  return new Promise((resolve, reject) => {
+    if (f.ext === 'stl') {
+      new STLLoader().load(url, (geometry) => resolve(new THREE.Mesh(geometry, materialCyber)), undefined, reject);
+    } else if (f.ext === 'obj') {
+      new OBJLoader().load(url, (object) => {
+        object.traverse(child => { if (child.isMesh) child.material = materialCyber; });
+        resolve(object);
+      }, undefined, reject);
+    } else if (f.ext === '3mf') {
+      new ThreeMFLoader().load(url, resolve, undefined, reject);
+    } else {
+      reject(new Error('unsupported ext'));
+    }
+  });
+}
+
+function disposeObject(object) {
+  object.traverse?.((child) => {
+    child.geometry?.dispose?.();
+    if (Array.isArray(child.material)) child.material.forEach(m => m !== materialCyber && m.dispose?.());
+    else if (child.material && child.material !== materialCyber) child.material.dispose?.();
+  });
+  if (object.geometry) object.geometry.dispose();
+}
+
+async function generateOneThumbnail(f) {
+  const object = await loadObjectForBatch(f);
+  batchScene.add(object);
+
+  const box = new THREE.Box3().setFromObject(object);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  object.position.sub(center);
+  const dist = (Math.max(size.x, size.y, size.z) || 1) * 2;
+  batchCamera.position.set(dist, dist, dist);
+  batchCamera.lookAt(0, 0, 0);
+
+  batchRenderer.render(batchScene, batchCamera);
+  const dataUrl = batchRenderer.domElement.toDataURL('image/png');
+
+  batchScene.remove(object);
+  disposeObject(object);
+
+  await uploadThumbnail(f.id, dataUrl);
+}
+
+async function runBatchThumbnails() {
+  if (!batchRenderer) initBatchRenderer();
+  const all = await fetch('/api/files').then(r => r.json());
+  const missing = all.filter(f => !f.thumbnail);
+  let done = 0, failed = 0;
+  for (const f of missing) {
+    if (!batchRunning) break; // per erneutem Klick (STOPPEN) abgebrochen
+    genThumbsStatus.textContent = `${done}/${missing.length}…`;
+    try {
+      await generateOneThumbnail(f);
+    } catch (err) {
+      failed++;
+      console.warn(`Thumbnail für "${f.filename}" fehlgeschlagen: ${err.message}`);
+    }
+    done++;
+    if (done % 15 === 0) loadFiles();
+  }
+  genThumbsStatus.textContent = missing.length
+    ? `${done}/${missing.length} fertig${failed ? ` (${failed} fehlgeschlagen)` : ''}`
+    : 'alle vorhanden';
+  genThumbsBtn.textContent = '🖼 VORSCHAUBILDER';
+  batchRunning = false;
+  loadFiles();
+}
+
+genThumbsBtn.addEventListener('click', () => {
+  if (batchRunning) {
+    batchRunning = false; // Schleife stoppt nach dem aktuell laufenden Modell
+    return;
+  }
+  batchRunning = true;
+  genThumbsBtn.textContent = '■ STOPPEN';
+  runBatchThumbnails();
 });
 
 function loadMeshForFile(f) {
@@ -283,6 +534,7 @@ function loadMeshForFile(f) {
       currentMesh = mesh;
       scene.add(mesh);
       frameObject(mesh);
+      maybeCaptureThumbnail(f);
     }, undefined, (err) => console.error('STL laden fehlgeschlagen', err));
   } else if (f.ext === 'obj') {
     new OBJLoader().load(url, (object) => {
@@ -290,12 +542,14 @@ function loadMeshForFile(f) {
       currentMesh = object;
       scene.add(object);
       frameObject(object);
+      maybeCaptureThumbnail(f);
     }, undefined, (err) => console.error('OBJ laden fehlgeschlagen', err));
   } else if (f.ext === '3mf') {
     new ThreeMFLoader().load(url, (object) => {
       currentMesh = object;
       scene.add(object);
       frameObject(object);
+      maybeCaptureThumbnail(f);
     }, undefined, (err) => console.error('3MF laden fehlgeschlagen', err));
   }
 }
@@ -317,6 +571,7 @@ function openModal(f) {
   renderTags(f.tags);
   renderCategories(f.categories);
   refreshJobs();
+  refreshEstimateUI();
 
   modalBackdrop.classList.add('open');
   if (!renderer) initViewer();
@@ -392,6 +647,26 @@ const runningHint = document.getElementById('runningHint');
 const jobListEl = document.getElementById('jobList');
 
 let runningJob = null;
+let spoolsCache = null; // vom Server geladene Spoolman-Spulen, einmal pro Session-Öffnung geholt
+
+async function loadSpools() {
+  if (spoolsCache) return spoolsCache;
+  try {
+    spoolsCache = await fetch('/api/spoolman/spools').then(r => r.json());
+  } catch {
+    spoolsCache = [];
+  }
+  return spoolsCache;
+}
+
+function spoolOptionsHtml(spools, selectedId) {
+  const options = spools.map(s => {
+    const weight = s.remaining_weight != null ? ` (${Math.round(s.remaining_weight)}g übrig)` : '';
+    const selected = String(s.id) === String(selectedId) ? 'selected' : '';
+    return `<option value="${s.id}" ${selected}>${s.label}${weight}</option>`;
+  }).join('');
+  return `<option value="">manuell</option>${options}`;
+}
 let runningTimerId = null;
 
 function fmtDuration(ms) {
@@ -436,10 +711,13 @@ function jobErrorLabel(err) {
   if (err === 'ha_counter_reset') return 'Energiezähler ist zwischendurch zurückgesprungen';
   if (String(err || '').startsWith('ha_http_')) return `Home Assistant antwortete mit ${err.replace('ha_http_', 'HTTP ')}`;
   if (String(err || '').startsWith('ha_unreachable')) return 'Home Assistant nicht erreichbar (URL prüfen)';
+  if (err === 'spoolman_not_configured') return 'Spoolman nicht konfiguriert (⚙ Einstellungen)';
+  if (String(err || '').startsWith('spoolman_http_')) return `Spoolman antwortete mit ${err.replace('spoolman_http_', 'HTTP ')}`;
+  if (String(err || '').startsWith('spoolman_unreachable')) return 'Spoolman nicht erreichbar (URL prüfen)';
   return err || 'unbekannter Fehler';
 }
 
-function renderJobs(jobs) {
+async function renderJobs(jobs) {
   jobListEl.innerHTML = '';
   const finished = jobs.filter(j => j.status !== 'running');
   if (!finished.length) {
@@ -449,6 +727,8 @@ function renderJobs(jobs) {
     jobListEl.appendChild(empty);
     return;
   }
+
+  const spools = await loadSpools();
 
   for (const job of finished) {
     const row = document.createElement('div');
@@ -466,14 +746,33 @@ function renderJobs(jobs) {
           : `<span>Strom: ${job.energy_kwh.toFixed(3)} kWh → <span class="job-cost">${fmtEur(job.energy_cost)}</span></span>`}
       </div>
       <div class="job-material" style="margin-top:8px;">
+        <select class="job-spool">${spoolOptionsHtml(spools, job.spoolman_spool_id)}</select>
         <input type="text" inputmode="decimal" class="job-grams" placeholder="Gramm" value="${job.filament_grams ?? ''}">
         <input type="text" inputmode="decimal" class="job-price" placeholder="€/kg" value="${job.filament_price_per_kg ?? ''}">
         <button class="job-save-material" type="button">SPEICHERN</button>
         ${job.filament_cost != null ? `<span>→ <span class="job-cost">${fmtEur(job.filament_cost)}</span></span>` : ''}
       </div>
+      ${job.filament_error ? `<div class="job-error">Filament: ${jobErrorLabel(job.filament_error)}</div>` : ''}
       ${(job.energy_cost != null || job.filament_cost != null)
         ? `<div class="job-total">GESAMT: ${fmtEur(total)}</div>` : ''}
     `;
+
+    const priceInput = row.querySelector('.job-price');
+    const spoolSelect = row.querySelector('.job-spool');
+
+    // Spule gewählt -> Preis/kg kommt von Spoolman, Feld nur noch zur Anzeige.
+    // "manuell" -> Preisfeld wieder frei editierbar.
+    function syncPriceField() {
+      const spool = spools.find(s => String(s.id) === spoolSelect.value);
+      if (spool && spool.price_per_kg != null) {
+        priceInput.value = spool.price_per_kg.toFixed(2);
+        priceInput.disabled = true;
+      } else {
+        priceInput.disabled = false;
+      }
+    }
+    spoolSelect.addEventListener('change', syncPriceField);
+    syncPriceField();
 
     row.querySelector('.job-del').addEventListener('click', async () => {
       await fetch(`/api/print-jobs/${job.id}`, { method: 'DELETE' });
@@ -482,11 +781,13 @@ function renderJobs(jobs) {
 
     row.querySelector('.job-save-material').addEventListener('click', async () => {
       const grams = row.querySelector('.job-grams').value.trim();
-      const price = row.querySelector('.job-price').value.trim();
+      const price = priceInput.value.trim();
+      const spoolId = spoolSelect.value;
       await fetch(`/api/print-jobs/${job.id}/material`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filament_grams: grams, filament_price_per_kg: price }),
+        body: JSON.stringify({ filament_grams: grams, filament_price_per_kg: price, spool_id: spoolId }),
       });
+      spoolsCache = null; // Restgewicht hat sich durch die Buchung geändert -> neu laden
       refreshJobs();
     });
 
@@ -518,6 +819,160 @@ stopPrintBtn.addEventListener('click', async () => {
   refreshJobs();
 });
 
+// ---------- Kosten-VOR-Schätzung (Faustformel aus Modellgeometrie + Druckprofil, kein Slicing) ----------
+const estimateProfileEl = document.getElementById('estimateProfile');
+const estimateSpoolEl = document.getElementById('estimateSpool');
+const runEstimateBtn = document.getElementById('runEstimateBtn');
+const estimateResultEl = document.getElementById('estimateResult');
+const manageProfilesBtn = document.getElementById('manageProfilesBtn');
+const profilesBackdrop = document.getElementById('profilesBackdrop');
+const closeProfilesBtn = document.getElementById('closeProfiles');
+const profilesListEl = document.getElementById('profilesList');
+const createProfileBtn = document.getElementById('createProfileBtn');
+
+let costProfiles = [];
+
+async function loadCostProfiles() {
+  costProfiles = await fetch('/api/cost-profiles').then(r => r.json());
+  const selected = estimateProfileEl.value;
+  estimateProfileEl.innerHTML = costProfiles.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  if (selected && costProfiles.some(p => String(p.id) === selected)) estimateProfileEl.value = selected;
+}
+
+function fmtMinutes(min) {
+  if (min == null) return '–';
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return h > 0 ? `${h} h ${m} min` : `${m} min`;
+}
+
+function renderEstimateResult(est) {
+  if (!est) {
+    estimateResultEl.innerHTML = `<div class="cat-empty">noch keine Berechnung für diese Datei</div>`;
+    return;
+  }
+  estimateResultEl.innerHTML = `
+    <div class="estimate-result">
+      <div class="stat"><span class="v">${est.filament_grams.toFixed(1)} g</span><span class="l">Filament</span></div>
+      <div class="stat"><span class="v">${fmtMinutes(est.print_minutes)}</span><span class="l">Druckzeit (ca.)</span></div>
+      <div class="stat"><span class="v">${fmtEur(est.filament_cost)}</span><span class="l">Materialkosten</span></div>
+      <div class="stat"><span class="v">${fmtEur(est.energy_cost)}</span><span class="l">Stromkosten</span></div>
+      <div class="stat total"><span class="v">${fmtEur(est.total_cost)}</span><span class="l">Gesamt</span></div>
+    </div>
+  `;
+}
+
+async function refreshEstimateUI() {
+  if (!currentFile) return;
+  await loadCostProfiles();
+  const spools = await loadSpools();
+  estimateSpoolEl.innerHTML = spoolOptionsHtml(spools, '');
+  const est = await fetch(`/api/files/${currentFile.id}/estimate`).then(r => r.json());
+  if (est) {
+    if (costProfiles.some(p => p.id === est.profile_id)) estimateProfileEl.value = est.profile_id;
+    if (est.spool_id) estimateSpoolEl.value = est.spool_id;
+  }
+  renderEstimateResult(est);
+}
+
+// Modellgeometrie (Volumen/Oberfläche) aus der bereits im Viewer geladenen Mesh berechnen —
+// Signed-Tetrahedron-Methode fürs Volumen, Dreiecksflächen-Summe für die Oberfläche. Arbeitet
+// mit matrixWorld, damit die von frameObject() vorgenommene Zentrierung mit einfließt.
+function computeMeshStats(object) {
+  let volumeMm3 = 0;
+  let surfaceAreaMm2 = 0;
+  object.traverse((child) => {
+    if (!child.isMesh || !child.geometry) return;
+    const geom = child.geometry.index ? child.geometry.toNonIndexed() : child.geometry;
+    const pos = geom.attributes.position;
+    if (!pos) return;
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i += 3) {
+      a.fromBufferAttribute(pos, i).applyMatrix4(child.matrixWorld);
+      b.fromBufferAttribute(pos, i + 1).applyMatrix4(child.matrixWorld);
+      c.fromBufferAttribute(pos, i + 2).applyMatrix4(child.matrixWorld);
+      volumeMm3 += a.dot(new THREE.Vector3().crossVectors(b, c)) / 6;
+      surfaceAreaMm2 += new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).length() / 2;
+    }
+  });
+  return { volumeMm3: Math.abs(volumeMm3), surfaceAreaMm2 };
+}
+
+runEstimateBtn.addEventListener('click', async () => {
+  if (!currentFile || !currentMesh) return;
+  runEstimateBtn.disabled = true;
+  runEstimateBtn.textContent = '… BERECHNE';
+  try {
+    const { volumeMm3, surfaceAreaMm2 } = computeMeshStats(currentMesh);
+    const box = new THREE.Box3().setFromObject(currentMesh);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    const est = await fetch(`/api/files/${currentFile.id}/estimate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        volumeMm3, surfaceAreaMm2, bboxX: size.x, bboxY: size.y,
+        profileId: estimateProfileEl.value || null,
+        spoolId: estimateSpoolEl.value || null,
+      }),
+    }).then(r => r.json());
+    renderEstimateResult(est);
+  } finally {
+    runEstimateBtn.disabled = false;
+    runEstimateBtn.textContent = '▶ KOSTEN BERECHNEN';
+  }
+});
+
+async function renderProfilesList() {
+  await loadCostProfiles();
+  profilesListEl.innerHTML = costProfiles.map(p => `
+    <div class="profile-row" data-id="${p.id}">
+      <span>${p.name} — ${p.layer_height_mm}mm / ${p.infill_percent}% / ${p.wall_count} Wände / ${p.printer_power_watts}W</span>
+      <button class="pdel" title="Profil löschen">×</button>
+    </div>
+  `).join('') || `<div class="cat-empty">keine Profile — leg unten eins an</div>`;
+
+  profilesListEl.querySelectorAll('.profile-row .pdel').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const row = e.target.closest('.profile-row');
+      if (costProfiles.length <= 1) { alert('Mindestens ein Profil muss bestehen bleiben.'); return; }
+      if (!confirm('Profil wirklich löschen?')) return;
+      await fetch(`/api/cost-profiles/${row.dataset.id}`, { method: 'DELETE' });
+      await renderProfilesList();
+    });
+  });
+}
+
+manageProfilesBtn.addEventListener('click', async () => {
+  await renderProfilesList();
+  profilesBackdrop.classList.add('open');
+});
+closeProfilesBtn.addEventListener('click', () => profilesBackdrop.classList.remove('open'));
+profilesBackdrop.addEventListener('click', (e) => { if (e.target === profilesBackdrop) profilesBackdrop.classList.remove('open'); });
+
+createProfileBtn.addEventListener('click', async () => {
+  const name = document.getElementById('npName').value.trim();
+  if (!name) return;
+  await fetch('/api/cost-profiles', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      layer_height_mm: document.getElementById('npLayerHeight').value,
+      infill_percent: document.getElementById('npInfill').value,
+      wall_count: document.getElementById('npWalls').value,
+      nozzle_diameter_mm: document.getElementById('npNozzle').value,
+      top_bottom_layers: document.getElementById('npTopBottom').value,
+      print_speed_mm_s: document.getElementById('npSpeed').value,
+      speed_overhead_factor: document.getElementById('npOverhead').value,
+      printer_power_watts: document.getElementById('npPower').value,
+      filament_density_g_cm3: document.getElementById('npDensity').value,
+      filament_price_eur_per_kg: document.getElementById('npPrice').value,
+    }),
+  });
+  document.getElementById('npName').value = '';
+  await renderProfilesList();
+});
+
 // ---------- Einstellungen (Strompreis + Home Assistant) ----------
 const settingsBtn = document.getElementById('settingsBtn');
 const settingsBackdrop = document.getElementById('settingsBackdrop');
@@ -526,9 +981,12 @@ const setPowerPrice = document.getElementById('setPowerPrice');
 const setHaUrl = document.getElementById('setHaUrl');
 const setHaToken = document.getElementById('setHaToken');
 const setHaEntity = document.getElementById('setHaEntity');
+const setSpoolmanUrl = document.getElementById('setSpoolmanUrl');
 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 const testHaBtn = document.getElementById('testHaBtn');
 const haStatus = document.getElementById('haStatus');
+const testSpoolmanBtn = document.getElementById('testSpoolmanBtn');
+const spoolmanStatus = document.getElementById('spoolmanStatus');
 
 async function openSettings() {
   const s = await fetch('/api/settings').then(r => r.json());
@@ -537,8 +995,11 @@ async function openSettings() {
   setHaEntity.value = s.ha_energy_entity_id;
   setHaToken.value = '';
   setHaToken.placeholder = s.ha_token_set ? '•••• (gespeichert — leer lassen zum Beibehalten)' : 'wird beim Speichern nicht angezeigt';
+  setSpoolmanUrl.value = s.spoolman_base_url;
   haStatus.textContent = '';
   haStatus.className = 'ha-status';
+  spoolmanStatus.textContent = '';
+  spoolmanStatus.className = 'ha-status';
   settingsBackdrop.classList.add('open');
 }
 
@@ -551,11 +1012,13 @@ saveSettingsBtn.addEventListener('click', async () => {
     power_price_eur_per_kwh: setPowerPrice.value.trim(),
     ha_base_url: setHaUrl.value.trim(),
     ha_energy_entity_id: setHaEntity.value.trim(),
+    spoolman_base_url: setSpoolmanUrl.value.trim(),
   };
   if (setHaToken.value.trim()) body.ha_token = setHaToken.value.trim();
   await fetch('/api/settings', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
+  spoolsCache = null; // URL hat sich evtl. geändert -> nächste Job-Ansicht neu laden
   settingsBackdrop.classList.remove('open');
 });
 
@@ -569,6 +1032,19 @@ testHaBtn.addEventListener('click', async () => {
   } else {
     haStatus.textContent = `✗ ${jobErrorLabel(result.error)}`;
     haStatus.className = 'ha-status err';
+  }
+});
+
+testSpoolmanBtn.addEventListener('click', async () => {
+  spoolmanStatus.textContent = 'prüfe…';
+  spoolmanStatus.className = 'ha-status';
+  const result = await fetch('/api/settings/test-spoolman').then(r => r.json());
+  if (result.ok) {
+    spoolmanStatus.textContent = `✓ verbunden — ${result.count} Spule(n) gefunden`;
+    spoolmanStatus.className = 'ha-status ok';
+  } else {
+    spoolmanStatus.textContent = `✗ ${jobErrorLabel(result.error)}`;
+    spoolmanStatus.className = 'ha-status err';
   }
 });
 

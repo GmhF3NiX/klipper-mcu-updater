@@ -51,25 +51,38 @@ function extractThumbnail3mf(absPath, fileId) {
   }
 }
 
+// Ordnername für zusätzliche Wurzeln, unter dem ihre Dateien im Ordnerbaum erscheinen — damit ihr
+// rel_path nicht mit der primären Bibliothek kollidiert (rel_path ist global UNIQUE). Die primäre
+// Wurzel (LIBRARY_PATH) bleibt unpräfixiert, exakt wie vorher.
+function labelToSegment(label) {
+  return label.replace(/[/\\]+/g, '-').trim() || 'ordner';
+}
+
 function scanLibrary() {
   const started = Date.now();
-  const found = walk(LIBRARY_PATH);
+  const roots = db.prepare(`SELECT * FROM library_roots ORDER BY id`).all();
+
   const foundRelPaths = new Set();
+  let totalFound = 0;
 
   const upsert = db.prepare(`
-    INSERT INTO files (rel_path, filename, ext, size_bytes, mtime, added_at)
-    VALUES (@rel_path, @filename, @ext, @size_bytes, @mtime, @added_at)
+    INSERT INTO files (rel_path, filename, ext, size_bytes, mtime, added_at, root_id, abs_path)
+    VALUES (@rel_path, @filename, @ext, @size_bytes, @mtime, @added_at, @root_id, @abs_path)
     ON CONFLICT(rel_path) DO UPDATE SET
       size_bytes = excluded.size_bytes,
-      mtime = excluded.mtime
-    WHERE files.mtime != excluded.mtime OR files.size_bytes != excluded.size_bytes
+      mtime = excluded.mtime,
+      root_id = excluded.root_id,
+      abs_path = excluded.abs_path
+    WHERE files.mtime != excluded.mtime OR files.size_bytes != excluded.size_bytes OR files.abs_path != excluded.abs_path
   `);
-
   const getId = db.prepare(`SELECT id, thumbnail FROM files WHERE rel_path = ?`);
 
-  const tx = db.transaction((paths) => {
+  const tx = db.transaction((root, paths) => {
+    const isPrimary = root.path === LIBRARY_PATH;
+    const segment = isPrimary ? null : labelToSegment(root.label);
     for (const absPath of paths) {
-      const relPath = path.relative(LIBRARY_PATH, absPath);
+      const realRelPath = path.relative(root.path, absPath);
+      const relPath = isPrimary ? realRelPath : path.join(segment, realRelPath);
       foundRelPaths.add(relPath);
       const stat = fs.statSync(absPath);
       const ext = path.extname(absPath).toLowerCase().slice(1);
@@ -81,6 +94,8 @@ function scanLibrary() {
         size_bytes: stat.size,
         mtime: Math.floor(stat.mtimeMs),
         added_at: Date.now(),
+        root_id: root.id,
+        abs_path: absPath,
       });
 
       const row = getId.get(relPath);
@@ -92,9 +107,14 @@ function scanLibrary() {
       }
     }
   });
-  tx(found);
 
-  // Remove DB entries whose underlying file has disappeared.
+  for (const root of roots) {
+    const found = walk(root.path);
+    totalFound += found.length;
+    tx(root, found);
+  }
+
+  // Remove DB entries whose underlying file has disappeared (or whose root was removed).
   const allRows = db.prepare(`SELECT id, rel_path FROM files`).all();
   const del = db.prepare(`DELETE FROM files WHERE id = ?`);
   const delTx = db.transaction(() => {
@@ -105,8 +125,8 @@ function scanLibrary() {
   delTx();
 
   const durationMs = Date.now() - started;
-  console.log(`Scan fertig: ${found.length} Dateien in ${durationMs}ms (Bibliothek: ${LIBRARY_PATH})`);
-  return { count: found.length, durationMs };
+  console.log(`Scan fertig: ${totalFound} Dateien in ${durationMs}ms (${roots.length} Wurzel(n))`);
+  return { count: totalFound, durationMs };
 }
 
 module.exports = { scanLibrary, LIBRARY_PATH, THUMB_DIR };
