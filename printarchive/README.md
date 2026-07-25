@@ -1,26 +1,87 @@
-# 3D-Print Archive
+# PrintArchive
 
-Selbstgeschriebene, self-hosted STL/3MF/OBJ-Bibliothek mit Cyberpunk-UI und Slicer-Uplink.
-Backend: Node.js/Express + SQLite. Frontend: Vanilla JS + Three.js (3D-Vorschau direkt im Browser).
+Selbstgehostete STL/3MF/OBJ-Bibliothek mit eigenem Cyberpunk-UI. Backend: Node.js/Express +
+SQLite. Frontend: Vanilla JS + Three.js (3D-Vorschau direkt im Browser, Neon-Glow-Rendering).
+Läuft als Docker-Container (z. B. auf Unraid) oder als eigenständiger Windows-Installer — kein
+Cloud-Kram, alles bleibt lokal.
 
-## Was die App tut
+![Bibliotheksansicht](docs/screenshots/01-bibliothek.png)
 
-- Scannt rekursiv einen gemounteten Ordner nach `.stl`, `.3mf`, `.obj`
-- Indexiert Dateiname, Größe, Pfad in einer lokalen SQLite-DB
-- Extrahiert bei `.3mf`-Dateien das eingebettete Vorschaubild (falls vom Slicer gespeichert)
-- Zeigt STL/OBJ/3MF live als 3D-Modell im Browser (drehen, zoomen)
-- Tags, frei anlegbare Kategorien (unabhängig von der Ordnerstruktur), Suche, Filter nach Format/Tag/Kategorie
-- "Download / An Slicer öffnen" liefert die Originaldatei mit korrektem MIME-Type,
-  sodass sie vom Betriebssystem im als Standard registrierten Slicer geöffnet wird
-- Rührt die Originaldateien nicht an — reiner Lesezugriff, außer du löschst/verschiebst selbst
-- Druck-Kosten pro Datei: Start/Stop-Timer, Stromkosten werden über einen Home-Assistant-Energiesensor
-  (z. B. Zigbee-Steckdose am Drucker) für genau dieses Zeitfenster abgefragt und mit deinem Strompreis
-  verrechnet; Filamentgewicht + Preis/kg trägst du manuell ein (Spoolman-Anbindung dafür ist noch offen)
+## Features
 
-**Kein** Moonraker/Klipper-Uplink, kein automatisches G-Code-Generieren. Wenn du das brauchst,
-schau dir zusätzlich PrintStash an — das ist nicht das, was hier gebaut wurde.
+- **Bibliothek durchsuchen** — rekursiver Scan nach `.stl`, `.3mf`, `.obj`, Ordnerstruktur +
+  frei anlegbare Kategorien (unabhängig vom Dateisystem) + Tags, Volltextsuche, Filter nach
+  Format/Tag/Kategorie
+- **Mehrere Bibliotheks-Ordner** — beliebig viele zusätzliche Ordner zur Laufzeit hinzufügen,
+  nicht nur ein fest gemounteter Pfad
+- **3D-Viewer im Browser** — STL/OBJ/3MF frei drehen/zoomen, Neon-Rot-Rendering mit
+  Bloom-Glow-Postprocessing, automatisch erzeugte Vorschaubilder (auch als Hintergrund-Batch für
+  die ganze Bibliothek)
+- **"An Slicer öffnen"** — direkte Übergabe an OrcaSlicer per `orcaslicer://`-Protokoll
+- **Kosten-Schätzung vor dem Druck** — Filamentgewicht + Druckzeit-Richtwert aus
+  Modellgeometrie (Volumen/Oberfläche) + eigenen Druckprofilen (Schichthöhe, Fülldichte, Düse,
+  Geschwindigkeit, Drucker-Watt); mehrere Profile möglich. Faustformel, kein echtes Slicing.
+- **Echte Druck-Kosten-Verfolgung** — Start/Stop-Timer pro Druck, Stromkosten kommen live über
+  einen Home-Assistant-Energiesensor für exakt das Zeitfenster, Filamentkosten über Spoolman
+- **Spoolman-Anbindung** — Live-Spulenübersicht (Restgewicht, Preis/kg, Material, Farbe), beim
+  Druck direkt auswählbar, Verbrauch wird automatisch zurückgebucht
+- **Statistik-Dashboard** — Gesamtkosten, Filamentverbrauch, Top-Kategorien/-Dateien über alle
+  getrackten Drucke
+- **Duplikat-Erkennung** — SHA-256-Inhalts-Hash statt nur Dateiname/-größe, reine Anzeige,
+  löscht nichts automatisch
+- Rührt die Originaldateien nicht an — reiner Lesezugriff
 
-## Lokal testen (ohne Docker)
+Home Assistant und Spoolman sind komplett optional — ohne die läuft Bibliothek/Viewer/
+Kosten-Schätzung trotzdem, nur ohne Live-Daten bzw. mit manueller Preis-Eingabe.
+
+**Kein** Moonraker/Klipper-Uplink, kein automatisches G-Code-Generieren.
+
+## Screenshots
+
+| 3D-Viewer + Kosten-Schätzung | Spoolman live | Duplikat-Erkennung |
+|---|---|---|
+| ![3D-Viewer](docs/screenshots/02-3d-viewer-kosten.png) | ![Spoolman](docs/screenshots/03-spoolman-live.png) | ![Duplikate](docs/screenshots/04-duplikate.png) |
+
+## Installation — Windows
+
+1. Neuestes `PrintArchive-Setup.exe` von den [Releases](../../releases) laden und starten
+2. Assistent durchklicken: optional Spoolman (IP + Port, Standard 7912) und Home Assistant
+   (IP + Port, Standard 8123) einrichten, Desktop-Verknüpfung / Autostart nach Wunsch
+3. Fertig — Browser öffnet automatisch `http://localhost:8420`
+4. Bibliothek liegt unter `Dokumente\PrintArchive\Bibliothek`, Datenbank unter
+   `%APPDATA%\PrintArchive`. Weitere Ordner (beliebiger Pfad) über **➕ ORDNER** hinzufügen.
+
+Kein separates Node.js-Setup nötig (gebündelt). Sauberer Deinstaller über "Programme" bzw.
+Startmenü — Bibliothek/Datenbank bleiben dabei erhalten.
+
+## Installation — Docker / Unraid
+
+```bash
+git clone https://github.com/GmhF3NiX/klipper-mcu-updater.git
+cd klipper-mcu-updater/printarchive
+# docker-compose.yml: Volume-Pfad auf deinen echten Modelle-Share anpassen
+docker compose up -d --build
+# -> http://<server-ip>:8420
+```
+
+In Unraid alternativ über **Docker → Add Container** (Repository `printarchive`, Port
+8420→8420, Volume-Mapping wie in `docker-compose.yml`).
+
+### Env-Variablen (Docker)
+
+| Variable | Default | Bedeutung |
+|---|---|---|
+| `LIBRARY_PATH` | `/library` | primärer gemounteter Ordner mit deinen Modellen |
+| `CONFIG_DIR` | `/config` | Ablage für SQLite-DB + Thumbnail-Cache |
+| `PORT` | `8420` | interner Port |
+| `PUID` / `PGID` | `99` / `100` | Nutzer, unter dem der Prozess läuft (Unraid-Standard) |
+| `RESCAN_INTERVAL_MINUTES` | `15` | automatischer Re-Scan der Bibliothek |
+| `HOSTSHARES_PATH` | `/hostshares` | read-only-Mount, unter dem sich per UI weitere Ordner hinzufügen lassen |
+
+Strompreis, Home-Assistant-Zugang und Spoolman-URL werden **nicht** über Env-Variablen gesetzt,
+sondern über das ⚙-Einstellungen-Menü in der App selbst (landen in der SQLite-DB).
+
+## Lokal ohne Docker testen
 
 ```bash
 npm install
@@ -28,63 +89,18 @@ LIBRARY_PATH=/pfad/zu/deinen/modellen CONFIG_DIR=./config npm start
 # -> http://localhost:8420
 ```
 
-## Deployment auf unRAID
-
-### Variante A: docker-compose (empfohlen, z. B. über den "Compose Manager"-Plugin)
-
-1. Diesen Ordner (mit `Dockerfile`, `server/`, `public/`, `docker-compose.yml`) auf den Server kopieren,
-   z. B. nach `/mnt/user/appdata/printarchive/`.
-2. In `docker-compose.yml` den Volume-Pfad `/mnt/user/3D-Drucke` auf deinen echten Share anpassen.
-3. Im Ordner ausführen:
-   ```bash
-   docker compose up -d --build
-   ```
-4. Aufrufen unter `http://TOWER-IP:8420`.
-
-### Variante B: reines Docker-CLI / manueller Container in unRAID
-
-```bash
-docker build -t printarchive /mnt/user/appdata/printarchive
-docker run -d \
-  --name printarchive \
-  -e PUID=99 -e PGID=100 \
-  -p 8420:8420 \
-  -v /mnt/user/3D-Drucke:/library \
-  -v /mnt/user/appdata/printarchive/config:/config \
-  --restart unless-stopped \
-  printarchive
-```
-
-In unRAID kannst du daraus auch bequem einen eigenen Container-Eintrag über
-**Docker → Add Container** anlegen und die obigen Werte in die Felder eintragen
-(Repository: `printarchive`, Netzwerk-Typ: bridge, Port 8420→8420, zwei Volume-Mappings
-wie oben).
-
-### Env-Variablen
-
-| Variable | Default | Bedeutung |
-|---|---|---|
-| `LIBRARY_PATH` | `/library` | gemounteter Ordner mit deinen Modellen |
-| `CONFIG_DIR` | `/config` | Ablage für SQLite-DB + Thumbnail-Cache |
-| `PORT` | `8420` | interner Port |
-| `PUID` / `PGID` | `99` / `100` | Nutzer, unter dem der Prozess läuft (unraid-Standard) |
-| `RESCAN_INTERVAL_MINUTES` | `15` | automatischer Re-Scan der Bibliothek |
-
-Strompreis und Home-Assistant-Zugang (Basis-URL, Long-Lived Access Token, Energie-Entity-ID) werden
-**nicht** über Env-Variablen gesetzt, sondern über das ⚙-Einstellungen-Menü in der App selbst (landen
-in der SQLite-DB in `CONFIG_DIR`). Das funktioniert unabhängig davon, ob Home Assistant als OS/Supervised
-oder als eigener Docker-Container läuft — printarchive spricht nur die normale HA-REST-API an.
+Unter Windows läuft die App auch nativ (ohne Docker) — dann greifen automatisch
+Windows-taugliche Standardpfade (`Dokumente\PrintArchive`, `%APPDATA%\PrintArchive`) statt
+`/library`/`/config`, siehe `windows-installer/README.md` zum Selbstbauen des Installers.
 
 ## Grenzen, die du kennen solltest
 
-- **3MF-Vorschau im Browser**: Three.js' `3MFLoader` deckt die gängigen Slicer-Exporte ab,
-  aber nicht jede 3MF-Variante (z. B. manche CAD-Exporte mit exotischen Erweiterungen).
-  Fällt der Live-Viewer aus, funktioniert Download/Öffnen trotzdem.
-- **Kein automatischer Druckerversand**: "An Slicer öffnen" nutzt den Datei-Download-Mechanismus
-  des Browsers/Betriebssystems, keine direkte Prozesskopplung zum Slicer.
-- **Kein Multi-User/Login**: Die App ist für den Betrieb im eigenen Netz gedacht, nicht fürs offene Internet.
-  Falls Fernzugriff nötig ist: hinter Reverse-Proxy mit eigener Authentifizierung betreiben.
-- Ich konnte den Docker-Build in meiner Umgebung nicht ausführen (kein Docker-Daemon verfügbar),
-  habe Backend und Scanner aber direkt mit Node getestet (Scan, API-Routen, Tag-Verwaltung liefen
-  fehlerfrei). Der erste `docker compose up --build` bei dir ist also der reale Erstbau — meld dich,
-  falls dabei etwas hakt.
+- **Druckzeit-Schätzung ist eine Faustformel** (Modellvolumen/-oberfläche + Druckprofil), kein
+  echtes Slicing. Filamentgewicht ist brauchbar genau, die Zeit ein grober Richtwert.
+- **3MF-Kompatibilität**: Three.js' `3MFLoader` deckt gängige Slicer-Exporte ab, aber nicht jede
+  Variante (z. B. exotische CAD-Exporte). Fällt der Live-Viewer aus, funktioniert Download/
+  Öffnen trotzdem.
+- **Kein automatischer Druckerversand**: "An Slicer öffnen" nutzt Protokoll-Handoff an die
+  Slicer-Desktop-App, keine direkte Prozesskopplung.
+- **Kein Multi-User/Login**: gedacht für den Betrieb im eigenen Netz. Für Fernzugriff hinter
+  Reverse-Proxy mit eigener Authentifizierung betreiben.
