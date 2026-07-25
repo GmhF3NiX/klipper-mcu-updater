@@ -229,6 +229,38 @@
   .ha-status{ font-family:'Share Tech Mono',monospace; font-size:11.5px; }
   .ha-status.ok{ color:var(--cyan); }
   .ha-status.err{ color:var(--magenta); }
+
+  /* Spulen-Live-Übersicht */
+  .spool-row{
+    display:grid; grid-template-columns:14px 1fr 110px 80px; gap:12px; align-items:center;
+    border:1px solid var(--grid); background:var(--bg); border-radius:var(--radius-sm);
+    padding:10px 12px; margin-bottom:8px; font-family:'Share Tech Mono',monospace; font-size:11.5px;
+  }
+  .spool-swatch{ width:14px; height:14px; border-radius:50%; border:1px solid var(--grid); }
+  .spool-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .spool-name .material{ color:var(--dim); }
+  .spool-remaining-bar{ height:6px; background:var(--bg2); border-radius:3px; overflow:hidden; }
+  .spool-remaining-bar > div{ height:100%; background:var(--cyan); }
+  .spool-remaining-text{ color:var(--dim); font-size:9.5px; margin-top:3px; }
+  .spool-price{ text-align:right; color:var(--magenta); }
+
+  /* Statistik-Dashboard */
+  .dash-chart{ display:flex; align-items:flex-end; gap:6px; height:140px; padding:16px 4px 0; border-bottom:1px solid var(--grid); }
+  .dash-bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; }
+  .dash-bar-val{ font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--dim); margin-bottom:4px; white-space:nowrap; }
+  .dash-bar{ width:100%; max-width:26px; background:var(--cyan); border-radius:4px 4px 0 0; min-height:2px; box-shadow:0 0 8px -2px var(--cyan); }
+  .dash-bar-label{ font-family:'Share Tech Mono',monospace; font-size:8.5px; color:var(--dim); margin-top:6px; }
+  .dash-top-row{ display:flex; justify-content:space-between; gap:10px; padding:7px 9px; font-family:'Share Tech Mono',monospace; font-size:11.5px; border-bottom:1px solid var(--grid); }
+  .dash-top-row .name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dash-top-row .c{ color:var(--magenta); flex-shrink:0; }
+
+  /* Duplikate */
+  .dup-group{ border:1px solid var(--grid); background:var(--bg); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:10px; }
+  .dup-group-head{ font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--magenta); margin-bottom:6px; letter-spacing:1px; }
+  .dup-file-row{ display:flex; justify-content:space-between; gap:10px; font-family:'Share Tech Mono',monospace; font-size:11.5px; padding:5px 0; border-top:1px dashed var(--grid); }
+  .dup-file-row:first-child{ border-top:none; }
+  .dup-file-row .path{ color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dup-file-row .size{ flex-shrink:0; color:var(--cyan); }
 </style>
 </head>
 <body>
@@ -242,6 +274,8 @@
     </div>
     <div style="display:flex; align-items:center; gap:14px;">
       <div class="stat-tiles" id="statTiles"></div>
+      <button class="icon-btn" id="dashboardBtn" title="Statistik-Dashboard">📊</button>
+      <button class="icon-btn" id="spoolsBtn" title="Live-Spulenübersicht aus Spoolman">🧵</button>
       <button class="icon-btn" id="settingsBtn" title="Einstellungen (Strompreis, Home Assistant)">⚙</button>
     </div>
   </header>
@@ -280,6 +314,7 @@
         <button class="primary" id="rescanBtn">↻ RESCAN</button>
         <button id="genThumbsBtn" title="Für alle Dateien ohne Vorschaubild eins im Hintergrund erzeugen">🖼 VORSCHAUBILDER</button>
         <button id="manageRootsBtn" title="Weitere Ordner zur Bibliothek hinzufügen">➕ ORDNER</button>
+        <button id="duplicatesBtn" title="Doppelte Dateien per Inhalts-Hash finden (löscht nichts automatisch)">🔍 DUPLIKATE</button>
         <span class="ha-status" id="genThumbsStatus"></span>
       </div>
 
@@ -439,18 +474,84 @@
         <input type="text" id="nrLabel" placeholder="Anzeigename">
       </div>
       <div class="settings-field">
-        <label>PFAD (relativ zu /mnt/user auf deinem Unraid)</label>
+        <label id="nrSubpathLabel">PFAD (relativ zu /mnt/user auf deinem Unraid)</label>
         <input type="text" id="nrSubpath" placeholder="z.B. warez/3d-modelle">
       </div>
       <div class="settings-row">
         <button class="primary" id="createRootBtn" type="button">+ ORDNER HINZUFÜGEN</button>
         <span class="ha-status" id="rootsStatus"></span>
       </div>
-      <div class="hint">
+      <div class="hint" id="rootsHint">
         Der Container sieht read-only den kompletten Unraid-Share-Baum unter <code>/mnt/user</code> —
         gib hier den Pfad relativ dazu an (z.B. für <code>/mnt/user/warez/3d-modelle</code> also
         <code>warez/3d-modelle</code>). Der Ordner wird beim Hinzufügen sofort eingescannt und
         erscheint als eigener Top-Level-Ordner im Baum links.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="spoolsBackdrop">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-head">
+      <h2>SPULEN // LIVE AUS SPOOLMAN</h2>
+      <button class="close-btn" id="closeSpools">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-row" style="margin-bottom:14px;">
+        <button id="refreshSpoolsBtn" type="button">↻ AKTUALISIEREN</button>
+        <span class="ha-status" id="spoolsModalStatus"></span>
+      </div>
+      <div id="spoolsTable"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="dashboardBackdrop">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-head">
+      <h2>STATISTIK-DASHBOARD</h2>
+      <button class="close-btn" id="closeDashboard">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="stat-tiles" id="dashTiles" style="margin-bottom:20px;"></div>
+      <div class="cost-title">KOSTEN PRO MONAT</div>
+      <div id="dashChart" class="dash-chart"></div>
+      <div style="display:flex; gap:24px; flex-wrap:wrap; margin-top:20px;">
+        <div style="flex:1; min-width:220px;">
+          <div class="cost-title">TOP-KATEGORIEN</div>
+          <div id="dashTopCategories"></div>
+        </div>
+        <div style="flex:1; min-width:220px;">
+          <div class="cost-title">MEISTGEDRUCKT</div>
+          <div id="dashTopFiles"></div>
+        </div>
+      </div>
+      <div class="hint">
+        Basiert auf abgeschlossenen Einträgen unter "DRUCK-KOSTEN" (▶ DRUCK STARTEN / ■ DRUCK
+        BEENDEN im Datei-Modal). Noch alles leer? Dann wurde bisher kein Druck darüber getrackt.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="duplicatesBackdrop">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-head">
+      <h2>DUPLIKATE</h2>
+      <button class="close-btn" id="closeDuplicates">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-row" style="margin-bottom:12px;">
+        <button class="primary" id="startDupScanBtn" type="button">🔍 SCAN STARTEN</button>
+        <span class="ha-status" id="dupStatus"></span>
+      </div>
+      <div id="dupGroups"></div>
+      <div class="hint">
+        Vergleicht Dateien per SHA-256-Inhalts-Hash (nicht nur Name/Größe). Der erste Scan liest
+        dafür einmalig jede Datei komplett — bei 1000+ Dateien kann das ein paar Minuten dauern,
+        läuft im Hintergrund weiter, spätere Scans prüfen nur noch neue Dateien. Gefundene
+        Duplikate werden nur angezeigt — die App liest deine Bibliothek nur, löscht nichts.
       </div>
     </div>
   </div>

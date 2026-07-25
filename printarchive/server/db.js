@@ -1,9 +1,22 @@
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
-const CONFIG_DIR = process.env.CONFIG_DIR || '/config';
+// Docker-Container laufen immer unter Linux -> process.platform unterscheidet zuverlässig
+// zwischen "im Container" (feste Mounts unter /config, /library) und "nativ auf Windows/Mac
+// installiert" (keine Mounts, Standardpfade im Benutzerprofil), ohne eigenes Env-Var-Flag zu
+// brauchen. Einzige Quelle der Wahrheit für beide Pfade — scanner.js importiert sie von hier
+// statt sie selbst nochmal zu berechnen (führte vorher zu einem Bug: leicht abweichende Kopien
+// liefen auseinander, db.js seedete einen anderen Pfad als scanner.js tatsächlich scannte).
+const CONFIG_DIR = process.env.CONFIG_DIR || (process.platform === 'win32'
+  ? path.join(process.env.APPDATA || os.homedir(), 'PrintArchive')
+  : '/config');
 if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+
+const LIBRARY_PATH = process.env.LIBRARY_PATH || (process.platform === 'win32'
+  ? path.join(os.homedir(), 'Documents', 'PrintArchive', 'Bibliothek')
+  : '/library');
 
 const db = new Database(path.join(CONFIG_DIR, 'archive.db'));
 db.pragma('journal_mode = WAL');
@@ -116,7 +129,6 @@ CREATE TABLE IF NOT EXISTS library_roots (
 );
 `);
 
-const LIBRARY_PATH = process.env.LIBRARY_PATH || '/library';
 let defaultRoot = db.prepare(`SELECT * FROM library_roots WHERE path = ?`).get(LIBRARY_PATH);
 if (!defaultRoot) {
   const info = db.prepare(`INSERT INTO library_roots (path, label, added_at) VALUES (?, 'Bibliothek', ?)`)
@@ -157,6 +169,12 @@ if (!filesColumns.includes('root_id')) {
 if (!filesColumns.includes('abs_path')) {
   db.exec(`ALTER TABLE files ADD COLUMN abs_path TEXT`);
 }
+// content_hash: SHA-256 des Dateiinhalts, für die Duplikat-Erkennung — wird nicht beim Scan
+// berechnet (zu teuer für 1000+ große Dateien), sondern per Klick im "DUPLIKATE"-Modal, siehe
+// /api/duplicates/scan in index.js.
+if (!filesColumns.includes('content_hash')) {
+  db.exec(`ALTER TABLE files ADD COLUMN content_hash TEXT`);
+}
 const legacyRows = db.prepare(`SELECT id, rel_path FROM files WHERE root_id IS NULL OR abs_path IS NULL`).all();
 if (legacyRows.length) {
   const fixLegacy = db.prepare(`UPDATE files SET root_id = ?, abs_path = ? WHERE id = ?`);
@@ -166,4 +184,6 @@ if (legacyRows.length) {
   tx(legacyRows);
 }
 
+db.CONFIG_DIR = CONFIG_DIR;
+db.LIBRARY_PATH = LIBRARY_PATH;
 module.exports = db;

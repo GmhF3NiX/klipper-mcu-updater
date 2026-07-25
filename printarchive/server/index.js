@@ -7,6 +7,7 @@ const { getSetting, setSetting } = require('./settings');
 const ha = require('./homeassistant');
 const spoolman = require('./spoolman');
 const { estimate } = require('./estimate');
+const { hashFile } = require('./duplicates');
 
 const PORT = process.env.PORT || 8420;
 const app = express();
@@ -465,8 +466,17 @@ app.post('/api/files/:id/estimate', async (req, res) => {
   res.json(db.prepare(`SELECT * FROM file_estimates WHERE file_id = ?`).get(req.params.id));
 });
 
-// ---- weitere Bibliotheks-Wurzeln (zusätzliche Ordner unter dem read-only /hostshares-Mount) ----
+// ---- weitere Bibliotheks-Wurzeln ----
+// Im Docker-Container (immer Linux) darf nur unter dem read-only /hostshares-Mount
+// hinzugefügt werden, weil der Container sonst gar keinen anderen Host-Pfad sehen kann.
+// Nativ installiert (z.B. Windows) gibt es diese Sandbox nicht — dort ist jeder existierende
+// Ordner direkt erreichbar, subpath ist dann schon der vollständige Pfad.
 const HOSTSHARES_PATH = process.env.HOSTSHARES_PATH || '/hostshares';
+const IS_SANDBOXED = process.platform !== 'win32';
+
+app.get('/api/runtime-info', (req, res) => {
+  res.json({ sandboxed: IS_SANDBOXED, platform: process.platform });
+});
 
 app.get('/api/library-roots', (req, res) => {
   const roots = db.prepare(`SELECT * FROM library_roots ORDER BY id`).all();
@@ -484,9 +494,14 @@ app.post('/api/library-roots', (req, res) => {
   const subpath = (req.body.subpath || '').trim();
   if (!label || !subpath) return res.status(400).json({ error: 'label_and_subpath_required' });
 
-  const resolved = path.resolve(HOSTSHARES_PATH, subpath);
-  if (!resolved.startsWith(path.resolve(HOSTSHARES_PATH) + path.sep)) {
-    return res.status(400).json({ error: 'path_outside_hostshares' });
+  let resolved;
+  if (IS_SANDBOXED) {
+    resolved = path.resolve(HOSTSHARES_PATH, subpath);
+    if (!resolved.startsWith(path.resolve(HOSTSHARES_PATH) + path.sep)) {
+      return res.status(400).json({ error: 'path_outside_hostshares' });
+    }
+  } else {
+    resolved = path.resolve(subpath);
   }
   if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
     return res.status(400).json({ error: 'not_a_directory' });
@@ -513,12 +528,97 @@ app.delete('/api/library-roots/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Statistik-Dashboard (aus den bereits erfassten print_jobs) ----
+app.get('/api/dashboard-stats', (req, res) => {
+  const totals = db.prepare(`
+    SELECT COUNT(*) prints,
+      COALESCE(SUM(COALESCE(energy_cost,0) + COALESCE(filament_cost,0)), 0) as total_cost,
+      COALESCE(SUM(filament_grams), 0) as total_grams,
+      COALESCE(SUM(CASE WHEN ended_at IS NOT NULL THEN ended_at - started_at ELSE 0 END), 0) as total_ms
+    FROM print_jobs WHERE status = 'done'
+  `).get();
+
+  const monthlyRaw = db.prepare(`
+    SELECT strftime('%Y-%m', started_at / 1000, 'unixepoch') as month,
+      COALESCE(SUM(COALESCE(energy_cost,0) + COALESCE(filament_cost,0)), 0) as cost
+    FROM print_jobs WHERE status = 'done'
+    GROUP BY month ORDER BY month DESC LIMIT 12
+  `).all();
+  const monthly = monthlyRaw.reverse();
+
+  const topCategories = db.prepare(`
+    SELECT c.name, COUNT(*) c
+    FROM print_jobs pj
+    JOIN file_categories fc ON fc.file_id = pj.file_id
+    JOIN categories c ON c.id = fc.category_id
+    WHERE pj.status = 'done'
+    GROUP BY c.id ORDER BY c DESC LIMIT 8
+  `).all();
+
+  const topFiles = db.prepare(`
+    SELECT f.id, f.filename, COUNT(*) c
+    FROM print_jobs pj JOIN files f ON f.id = pj.file_id
+    WHERE pj.status = 'done'
+    GROUP BY pj.file_id ORDER BY c DESC LIMIT 8
+  `).all();
+
+  res.json({ totals, monthly, topCategories, topFiles });
+});
+
+// ---- Duplikat-Erkennung (SHA-256 pro Datei, nur auf Anfrage — App liest/ändert sonst nichts) ----
+let hashScanState = { running: false, done: 0, total: 0 };
+
+app.post('/api/duplicates/scan', (req, res) => {
+  if (hashScanState.running) return res.json({ ok: true, alreadyRunning: true, ...hashScanState });
+
+  const pending = db.prepare(`SELECT id, abs_path FROM files WHERE content_hash IS NULL`).all();
+  hashScanState = { running: true, done: 0, total: pending.length };
+  res.json({ ok: true, total: pending.length });
+
+  (async () => {
+    const setHash = db.prepare(`UPDATE files SET content_hash = ? WHERE id = ?`);
+    for (const f of pending) {
+      try {
+        setHash.run(await hashFile(f.abs_path), f.id);
+      } catch (err) {
+        console.warn(`Hash fehlgeschlagen für ${f.abs_path}: ${err.message}`);
+      }
+      hashScanState.done++;
+    }
+    hashScanState.running = false;
+  })();
+});
+
+app.get('/api/duplicates/scan-status', (req, res) => {
+  res.json(hashScanState);
+});
+
+app.get('/api/duplicates', (req, res) => {
+  const groups = db.prepare(`
+    SELECT content_hash, COUNT(*) c FROM files
+    WHERE content_hash IS NOT NULL GROUP BY content_hash HAVING c > 1
+  `).all();
+  const getFiles = db.prepare(`SELECT id, filename, rel_path, size_bytes FROM files WHERE content_hash = ? ORDER BY filename`);
+  res.json(groups.map(g => ({ hash: g.content_hash, files: getFiles.all(g.content_hash) })));
+});
+
 app.post('/api/rescan', (req, res) => {
   const result = scanLibrary();
   res.json({ ok: true, ...result });
 });
 
 // ---- startup ----
+// Einmalige Vorbelegung aus dem Windows-Installer (siehe windows-installer/PrintArchive.iss):
+// dort eingegebene Spoolman-/Home-Assistant-Adressen kommen als Env-Vars vom Launcher-Batch.
+// Nur setzen, wenn noch kein Wert in der DB steht — überschreibt also nie spätere Änderungen
+// über das ⚙-Einstellungen-Modal.
+if (process.env.SPOOLMAN_BASE_URL && !getSetting('spoolman_base_url')) {
+  setSetting('spoolman_base_url', process.env.SPOOLMAN_BASE_URL);
+}
+if (process.env.HA_BASE_URL && !getSetting('ha_base_url')) {
+  setSetting('ha_base_url', process.env.HA_BASE_URL);
+}
+
 scanLibrary();
 const RESCAN_INTERVAL_MS = Number(process.env.RESCAN_INTERVAL_MINUTES || 15) * 60 * 1000;
 setInterval(scanLibrary, RESCAN_INTERVAL_MS);

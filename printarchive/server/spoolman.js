@@ -33,7 +33,11 @@ function toOption(spool) {
     id: spool.id,
     label: [spool.filament?.vendor?.name, spool.filament?.name, spool.filament?.material]
       .filter(Boolean).join(' ') || `Spule #${spool.id}`,
+    vendor: spool.filament?.vendor?.name ?? null,
+    material: spool.filament?.material ?? null,
+    color_hex: spool.filament?.color_hex ?? null,
     remaining_weight: spool.remaining_weight ?? null,
+    initial_weight: spool.filament?.weight ?? spool.initial_weight ?? null,
     price_per_kg: pricePerKg(spool),
     density_g_cm3: spool.filament?.density ?? null,
   };

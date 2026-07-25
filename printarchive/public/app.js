@@ -3,6 +3,10 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const grid = document.getElementById('grid');
 const emptyMsg = document.getElementById('empty');
@@ -260,8 +264,20 @@ async function renderRootsList() {
   });
 }
 
+let runtimeInfo = null;
+
 manageRootsBtn.addEventListener('click', async () => {
   rootsStatus.textContent = '';
+  if (!runtimeInfo) {
+    runtimeInfo = await fetch('/api/runtime-info').then(r => r.json()).catch(() => ({ sandboxed: true }));
+    if (!runtimeInfo.sandboxed) {
+      document.getElementById('nrSubpathLabel').textContent = 'VOLLSTÄNDIGER ORDNERPFAD';
+      nrSubpathInput.placeholder = 'z.B. D:\\Modelle oder C:\\Users\\du\\Documents\\STL';
+      document.getElementById('rootsHint').innerHTML =
+        'Gib hier einen vollständigen Ordnerpfad auf diesem Rechner an. Der Ordner wird beim ' +
+        'Hinzufügen sofort eingescannt und erscheint als eigener Top-Level-Ordner im Baum links.';
+    }
+  }
   await renderRootsList();
   rootsBackdrop.classList.add('open');
 });
@@ -315,7 +331,7 @@ const modalCategories = document.getElementById('modalCategories');
 const newCategoryForFileInput = document.getElementById('newCategoryForFile');
 const addCategoryForFileBtn = document.getElementById('addCategoryForFileBtn');
 
-let renderer, scene, camera, controls, animFrame, currentMesh;
+let renderer, scene, camera, controls, composer, animFrame, currentMesh;
 
 function initViewer() {
   scene = new THREE.Scene();
@@ -328,6 +344,7 @@ function initViewer() {
   // je nach Browser einen bereits geleerten/falschen Buffer statt des gerenderten Bildes.
   renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(viewerEl.clientWidth, viewerEl.clientHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
   viewerEl.innerHTML = '';
   viewerEl.appendChild(renderer.domElement);
 
@@ -338,8 +355,23 @@ function initViewer() {
   scene.add(dir);
 
   controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.zoomSpeed = 3; // Standard (1) fühlte sich beim Scrollen viel zu fein/langsam an
+  // Wie OrcaSlicer: kein Nachlaufen/Trägheit nach dem Loslassen, direktes 1:1-Drehen/Verschieben,
+  // Links=Drehen, Rechts=Verschieben, Scrollrad=Zoom (letzteres ist OrbitControls-Standard).
+  controls.enableDamping = false;
+  controls.rotateSpeed = -1.3; // negativ = Drehrichtung umgekehrt (nach rechts ziehen dreht jetzt gegen den Uhrzeigersinn)
+  controls.panSpeed = 1.2;
+  controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+  controls.zoomSpeed = 8; // Standard (1) fühlte sich beim Scrollen viel zu fein/langsam an, 3 reichte auch noch nicht
+
+  // Echter Neon-Glow (Bloom) statt nur einer hellen Farbe — das Modell-Material ist emissiv
+  // (siehe materialCyber), die helleren Pixel bluten hier über den Modell-Rand hinaus aus.
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(viewerEl.clientWidth, viewerEl.clientHeight), 0.4, 0.25, 0.55
+  );
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
 
   animate();
 }
@@ -347,20 +379,30 @@ function initViewer() {
 function animate() {
   animFrame = requestAnimationFrame(animate);
   controls.update();
-  renderer.render(scene, camera);
+  composer.render();
 }
 
 function frameObject(object) {
   const box = new THREE.Box3().setFromObject(object);
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const center = new THREE.Vector3();
-  box.getCenter(center);
-  object.position.sub(center);
+  // Ein leeres Box3 (kein Mesh mit Geometrie im Objekt gefunden — z.B. wenn ein Loader nichts
+  // Sichtbares zurückgibt) hat min=+Infinity/max=-Infinity, was Größe/Center zu NaN/-Infinity
+  // macht. Ohne Absicherung landet die Kamera dann auf einer ungültigen Position und man sieht
+  // buchstäblich nichts, ohne jeden Hinweis warum. Fallback: Modell bleibt am Ursprung, Kamera
+  // auf eine feste, sichtbare Distanz.
+  if (!box.isEmpty() && Number.isFinite(box.min.x) && Number.isFinite(box.max.x)) {
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    object.position.sub(center);
 
-  const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  const dist = maxDim * 2;
-  camera.position.set(dist, dist, dist);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const dist = maxDim * 2;
+    camera.position.set(dist, dist, dist);
+  } else {
+    console.warn('frameObject: keine sichtbare Geometrie gefunden, benutze Standard-Ansicht');
+    camera.position.set(100, 100, 100);
+  }
   camera.lookAt(0, 0, 0);
   controls.target.set(0, 0, 0);
   controls.update();
@@ -373,9 +415,26 @@ function clearMesh() {
   }
 }
 
+// emissive sorgt dafür, dass das Material selbst "leuchtet" — zusammen mit dem Bloom-Pass in
+// initViewer() ergibt das den Neon-Glow-Look statt nur einer hellen Farbe.
+// side: DoubleSide als zusätzliche Absicherung gegen invertierte Wickelrichtung in manchen
+// Dateien (die eigentliche Ursache für komplett schwarze 3MF-Renders war aber fehlende
+// Normalen, siehe ensureNormals() unten).
 const materialCyber = new THREE.MeshStandardMaterial({
   color: 0xf0575a, metalness: 0.15, roughness: 0.35, flatShading: false,
+  emissive: 0xf0575a, emissiveIntensity: 0.35, side: THREE.DoubleSide,
 });
+
+// ThreeMFLoader liefert (anders als STLLoader/OBJLoader) Geometrie ohne "normal"-Attribut, da
+// das 3MF-Format keine Normalen speichert. MeshStandardMaterial braucht sie für die Beleuchtung
+// — ohne sie bleibt das Modell komplett schwarz/unsichtbar, obwohl Mesh und Kamera korrekt sind.
+function ensureNormals(object) {
+  object.traverse(child => {
+    if (child.isMesh && child.geometry && !child.geometry.attributes.normal) {
+      child.geometry.computeVertexNormals();
+    }
+  });
+}
 
 // STL/OBJ haben nie ein eingebettetes Vorschaubild (anders als 3MF, siehe scanner.js) — sobald
 // der Viewer das Modell fertig gerahmt hat, schnappen wir uns stattdessen einen Screenshot des
@@ -407,7 +466,7 @@ function maybeCaptureThumbnail(f) {
   if (f.thumbnail) return;
   requestAnimationFrame(() => requestAnimationFrame(async () => {
     if (currentFile?.id !== f.id) return; // Modal wurde inzwischen gewechselt/geschlossen
-    renderer.render(scene, camera); // sicherstellen, dass der Buffer den aktuellen Frame zeigt
+    composer.render(); // sicherstellen, dass der Buffer den aktuellen (Bloom-)Frame zeigt
     const dataUrl = canvasToSquareDataUrl(renderer.domElement);
     try {
       if (await uploadThumbnail(f.id, dataUrl)) {
@@ -425,7 +484,7 @@ function maybeCaptureThumbnail(f) {
 // jede der >1000 Dateien einzeln öffnen muss, nur um ein Thumbnail zu bekommen.
 const genThumbsBtn = document.getElementById('genThumbsBtn');
 const genThumbsStatus = document.getElementById('genThumbsStatus');
-let batchScene, batchCamera, batchRenderer, batchRunning = false;
+let batchScene, batchCamera, batchRenderer, batchComposer, batchRunning = false;
 
 function initBatchRenderer() {
   batchScene = new THREE.Scene();
@@ -433,10 +492,18 @@ function initBatchRenderer() {
   batchCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
   batchRenderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   batchRenderer.setSize(320, 320);
+  batchRenderer.toneMapping = THREE.ACESFilmicToneMapping;
   batchScene.add(new THREE.HemisphereLight(0x88ffff, 0x220022, 1.1));
   const dir = new THREE.DirectionalLight(0xffffff, 0.8);
   dir.position.set(1, 1, 1);
   batchScene.add(dir);
+
+  // Gleicher Bloom-Look wie im Hauptviewer (initViewer), damit Batch-generierte Thumbnails
+  // genauso neon-rot glühen wie beim manuellen Öffnen einer Datei.
+  batchComposer = new EffectComposer(batchRenderer);
+  batchComposer.addPass(new RenderPass(batchScene, batchCamera));
+  batchComposer.addPass(new UnrealBloomPass(new THREE.Vector2(320, 320), 0.4, 0.25, 0.55));
+  batchComposer.addPass(new OutputPass());
 }
 
 function loadObjectForBatch(f) {
@@ -450,7 +517,11 @@ function loadObjectForBatch(f) {
         resolve(object);
       }, undefined, reject);
     } else if (f.ext === '3mf') {
-      new ThreeMFLoader().load(url, resolve, undefined, reject);
+      new ThreeMFLoader().load(url, (object) => {
+        ensureNormals(object);
+        object.traverse(child => { if (child.isMesh) child.material = materialCyber; });
+        resolve(object);
+      }, undefined, reject);
     } else {
       reject(new Error('unsupported ext'));
     }
@@ -480,7 +551,7 @@ async function generateOneThumbnail(f) {
   batchCamera.position.set(dist, dist, dist);
   batchCamera.lookAt(0, 0, 0);
 
-  batchRenderer.render(batchScene, batchCamera);
+  batchComposer.render();
   const dataUrl = batchRenderer.domElement.toDataURL('image/png');
 
   batchScene.remove(object);
@@ -546,6 +617,13 @@ function loadMeshForFile(f) {
     }, undefined, (err) => console.error('OBJ laden fehlgeschlagen', err));
   } else if (f.ext === '3mf') {
     new ThreeMFLoader().load(url, (object) => {
+      ensureNormals(object);
+      let meshCount = 0;
+      object.traverse(child => { if (child.isMesh) { child.material = materialCyber; meshCount++; } });
+      console.log(`3MF geladen: ${meshCount} Mesh(es) in "${f.filename}"`);
+      if (meshCount === 0) {
+        console.warn('3MF enthält kein sichtbares Mesh laut ThreeMFLoader — Datei ggf. nur Metadaten/Presets, kein Modell');
+      }
       currentMesh = object;
       scene.add(object);
       frameObject(object);
@@ -1006,6 +1084,169 @@ async function openSettings() {
 settingsBtn.addEventListener('click', openSettings);
 closeSettingsBtn.addEventListener('click', () => settingsBackdrop.classList.remove('open'));
 settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) settingsBackdrop.classList.remove('open'); });
+
+// ---------- Spulen-Live-Übersicht (eigenes Modal, immer frisch von Spoolman, kein Cache) ----------
+const spoolsBtn = document.getElementById('spoolsBtn');
+const spoolsBackdrop = document.getElementById('spoolsBackdrop');
+const closeSpoolsBtn = document.getElementById('closeSpools');
+const spoolsTableEl = document.getElementById('spoolsTable');
+const spoolsModalStatus = document.getElementById('spoolsModalStatus');
+const refreshSpoolsBtn = document.getElementById('refreshSpoolsBtn');
+
+async function loadSpoolsLive() {
+  spoolsModalStatus.textContent = 'lädt…';
+  spoolsModalStatus.className = 'ha-status';
+  try {
+    const res = await fetch('/api/spoolman/spools');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const spools = await res.json();
+    if (!spools.length) {
+      spoolsTableEl.innerHTML = `<div class="cat-empty">keine Spulen gefunden (oder Spoolman nicht konfiguriert — siehe ⚙ Einstellungen)</div>`;
+    } else {
+      spoolsTableEl.innerHTML = spools.map(s => {
+        const pct = (s.initial_weight && s.remaining_weight != null)
+          ? Math.max(0, Math.min(100, (s.remaining_weight / s.initial_weight) * 100)) : null;
+        return `
+          <div class="spool-row">
+            <span class="spool-swatch" style="background:${s.color_hex ? '#' + s.color_hex : 'var(--grid)'}"></span>
+            <span class="spool-name">${s.label}${s.material ? ` <span class="material">// ${s.material}</span>` : ''}</span>
+            <span>
+              <div class="spool-remaining-bar">${pct != null ? `<div style="width:${pct}%"></div>` : ''}</div>
+              <div class="spool-remaining-text">${s.remaining_weight != null ? Math.round(s.remaining_weight) + 'g' : '?'}${s.initial_weight ? ' / ' + Math.round(s.initial_weight) + 'g' : ''}</div>
+            </span>
+            <span class="spool-price">${s.price_per_kg != null ? fmtEur(s.price_per_kg) + '/kg' : '–'}</span>
+          </div>
+        `;
+      }).join('');
+    }
+    spoolsModalStatus.textContent = `✓ ${spools.length} Spule(n) — ${new Date().toLocaleTimeString('de-DE')}`;
+    spoolsModalStatus.className = 'ha-status ok';
+  } catch (err) {
+    spoolsTableEl.innerHTML = '';
+    spoolsModalStatus.textContent = `✗ ${err.message}`;
+    spoolsModalStatus.className = 'ha-status err';
+  }
+}
+
+spoolsBtn.addEventListener('click', () => {
+  spoolsBackdrop.classList.add('open');
+  loadSpoolsLive();
+});
+closeSpoolsBtn.addEventListener('click', () => spoolsBackdrop.classList.remove('open'));
+spoolsBackdrop.addEventListener('click', (e) => { if (e.target === spoolsBackdrop) spoolsBackdrop.classList.remove('open'); });
+refreshSpoolsBtn.addEventListener('click', loadSpoolsLive);
+
+// ---------- Statistik-Dashboard (aus den erfassten Druck-Kosten-Einträgen) ----------
+const dashboardBtn = document.getElementById('dashboardBtn');
+const dashboardBackdrop = document.getElementById('dashboardBackdrop');
+const closeDashboardBtn = document.getElementById('closeDashboard');
+const dashTilesEl = document.getElementById('dashTiles');
+const dashChartEl = document.getElementById('dashChart');
+const dashTopCategoriesEl = document.getElementById('dashTopCategories');
+const dashTopFilesEl = document.getElementById('dashTopFiles');
+
+async function loadDashboard() {
+  const d = await fetch('/api/dashboard-stats').then(r => r.json());
+
+  dashTilesEl.innerHTML = `
+    <div class="stat-tile" style="--tile-color:var(--magenta)"><div class="num">${d.totals.prints}</div><div class="label">Drucke</div></div>
+    <div class="stat-tile" style="--tile-color:var(--cyan)"><div class="num">${fmtEur(d.totals.total_cost)}</div><div class="label">Gesamtkosten</div></div>
+    <div class="stat-tile" style="--tile-color:var(--amber)"><div class="num">${(d.totals.total_grams / 1000).toFixed(2)} kg</div><div class="label">Filament</div></div>
+    <div class="stat-tile" style="--tile-color:var(--cyan)"><div class="num">${fmtDuration(d.totals.total_ms)}</div><div class="label">Druckzeit</div></div>
+  `;
+
+  const maxCost = Math.max(...d.monthly.map(m => m.cost), 0.01);
+  dashChartEl.innerHTML = d.monthly.length
+    ? d.monthly.map(m => `
+        <div class="dash-bar-col">
+          <span class="dash-bar-val">${m.cost > 0 ? fmtEur(m.cost) : ''}</span>
+          <div class="dash-bar" style="height:${Math.max((m.cost / maxCost) * 100, 1)}%" title="${m.month}: ${fmtEur(m.cost)}"></div>
+          <span class="dash-bar-label">${m.month.slice(5)}</span>
+        </div>
+      `).join('')
+    : `<div class="cat-empty">noch keine Daten</div>`;
+
+  dashTopCategoriesEl.innerHTML = d.topCategories.length
+    ? d.topCategories.map(c => `<div class="dash-top-row"><span class="name">${c.name}</span><span class="c">${c.c}×</span></div>`).join('')
+    : `<div class="cat-empty">noch keine Daten</div>`;
+
+  dashTopFilesEl.innerHTML = d.topFiles.length
+    ? d.topFiles.map(f => `<div class="dash-top-row"><span class="name">${f.filename}</span><span class="c">${f.c}×</span></div>`).join('')
+    : `<div class="cat-empty">noch keine Daten</div>`;
+}
+
+dashboardBtn.addEventListener('click', () => {
+  dashboardBackdrop.classList.add('open');
+  loadDashboard();
+});
+closeDashboardBtn.addEventListener('click', () => dashboardBackdrop.classList.remove('open'));
+dashboardBackdrop.addEventListener('click', (e) => { if (e.target === dashboardBackdrop) dashboardBackdrop.classList.remove('open'); });
+
+// ---------- Duplikat-Erkennung (SHA-256, nur Anzeige — löscht nichts) ----------
+const duplicatesBtn = document.getElementById('duplicatesBtn');
+const duplicatesBackdrop = document.getElementById('duplicatesBackdrop');
+const closeDuplicatesBtn = document.getElementById('closeDuplicates');
+const startDupScanBtn = document.getElementById('startDupScanBtn');
+const dupStatusEl = document.getElementById('dupStatus');
+const dupGroupsEl = document.getElementById('dupGroups');
+let dupPollTimer = null;
+
+async function renderDuplicateGroups() {
+  const groups = await fetch('/api/duplicates').then(r => r.json());
+  dupGroupsEl.innerHTML = groups.length
+    ? groups.map(g => `
+        <div class="dup-group">
+          <div class="dup-group-head">${g.files.length} IDENTISCHE DATEIEN</div>
+          ${g.files.map(f => `
+            <div class="dup-file-row">
+              <span class="path">${f.rel_path}</span>
+              <span class="size">${fmtBytes(f.size_bytes)}</span>
+            </div>
+          `).join('')}
+        </div>
+      `).join('')
+    : `<div class="cat-empty">keine Duplikate gefunden</div>`;
+}
+
+async function pollDupScanStatus() {
+  const s = await fetch('/api/duplicates/scan-status').then(r => r.json());
+  if (s.total > 0) {
+    dupStatusEl.textContent = `hashe … ${s.done}/${s.total}`;
+    dupStatusEl.className = 'ha-status';
+  }
+  if (!s.running) {
+    clearInterval(dupPollTimer);
+    dupPollTimer = null;
+    startDupScanBtn.disabled = false;
+    startDupScanBtn.textContent = '🔍 SCAN STARTEN';
+    dupStatusEl.textContent = '✓ fertig';
+    dupStatusEl.className = 'ha-status ok';
+    await renderDuplicateGroups();
+  }
+}
+
+duplicatesBtn.addEventListener('click', async () => {
+  duplicatesBackdrop.classList.add('open');
+  dupStatusEl.textContent = '';
+  await renderDuplicateGroups();
+});
+closeDuplicatesBtn.addEventListener('click', () => duplicatesBackdrop.classList.remove('open'));
+duplicatesBackdrop.addEventListener('click', (e) => { if (e.target === duplicatesBackdrop) duplicatesBackdrop.classList.remove('open'); });
+
+startDupScanBtn.addEventListener('click', async () => {
+  startDupScanBtn.disabled = true;
+  startDupScanBtn.textContent = '… SCANNT';
+  const res = await fetch('/api/duplicates/scan', { method: 'POST' }).then(r => r.json());
+  if (res.total === 0) {
+    startDupScanBtn.disabled = false;
+    startDupScanBtn.textContent = '🔍 SCAN STARTEN';
+    dupStatusEl.textContent = '✓ alle Dateien bereits gehasht';
+    dupStatusEl.className = 'ha-status ok';
+    await renderDuplicateGroups();
+    return;
+  }
+  dupPollTimer = setInterval(pollDupScanStatus, 2000);
+});
 
 saveSettingsBtn.addEventListener('click', async () => {
   const body = {

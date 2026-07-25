@@ -1,12 +1,17 @@
 const fs = require('fs');
 const path = require('path');
-const AdmZip = require('adm-zip');
 const db = require('./db');
 
-const LIBRARY_PATH = process.env.LIBRARY_PATH || '/library';
-const CONFIG_DIR = process.env.CONFIG_DIR || '/config';
+// LIBRARY_PATH/CONFIG_DIR kommen von db.js (einzige Quelle der Wahrheit, siehe dort) statt hier
+// nochmal berechnet zu werden — zwei unabhängige Kopien derselben Fallback-Logik liefen vorher
+// leicht auseinander und sorgten für einen Bug (falscher Scan-Pfad unter Windows).
+const LIBRARY_PATH = db.LIBRARY_PATH;
+const CONFIG_DIR = db.CONFIG_DIR;
 const THUMB_DIR = path.join(CONFIG_DIR, 'thumbnails');
 if (!fs.existsSync(THUMB_DIR)) fs.mkdirSync(THUMB_DIR, { recursive: true });
+// Erststart nativ unter Windows: Bibliotheksordner existiert noch nicht -> anlegen, statt dass
+// der erste Scan einfach leer/mit Fehlermeldung durchläuft.
+if (!fs.existsSync(LIBRARY_PATH)) fs.mkdirSync(LIBRARY_PATH, { recursive: true });
 
 const EXTENSIONS = new Set(['.stl', '.obj', '.3mf']);
 
@@ -28,27 +33,6 @@ function walk(dir, results = []) {
     }
   }
   return results;
-}
-
-// Tries to pull an embedded preview image out of a .3mf (which is a zip container).
-// Slicers commonly store it at Metadata/thumbnail.png or Metadata/plate_*.png.
-function extractThumbnail3mf(absPath, fileId) {
-  try {
-    const zip = new AdmZip(absPath);
-    const entries = zip.getEntries();
-    const candidate =
-      entries.find(e => /metadata\/thumbnail.*\.png$/i.test(e.entryName)) ||
-      entries.find(e => /plate_1\.png$/i.test(e.entryName)) ||
-      entries.find(e => /\.png$/i.test(e.entryName));
-    if (!candidate) return null;
-    const outName = `${fileId}.png`;
-    const outPath = path.join(THUMB_DIR, outName);
-    fs.writeFileSync(outPath, candidate.getData());
-    return outName;
-  } catch (err) {
-    console.warn(`Thumbnail-Extraktion fehlgeschlagen für ${absPath}: ${err.message}`);
-    return null;
-  }
 }
 
 // Ordnername für zusätzliche Wurzeln, unter dem ihre Dateien im Ordnerbaum erscheinen — damit ihr
@@ -75,7 +59,6 @@ function scanLibrary() {
       abs_path = excluded.abs_path
     WHERE files.mtime != excluded.mtime OR files.size_bytes != excluded.size_bytes OR files.abs_path != excluded.abs_path
   `);
-  const getId = db.prepare(`SELECT id, thumbnail FROM files WHERE rel_path = ?`);
 
   const tx = db.transaction((root, paths) => {
     const isPrimary = root.path === LIBRARY_PATH;
@@ -98,13 +81,9 @@ function scanLibrary() {
         abs_path: absPath,
       });
 
-      const row = getId.get(relPath);
-      if (row && ext === '3mf' && !row.thumbnail) {
-        const thumb = extractThumbnail3mf(absPath, row.id);
-        if (thumb) {
-          db.prepare(`UPDATE files SET thumbnail = ? WHERE id = ?`).run(thumb, row.id);
-        }
-      }
+      // Eingebettete 3MF-Slicer-Vorschaubilder werden bewusst nicht mehr übernommen — der
+      // Client rendert für jedes Format (STL/OBJ/3MF) sein eigenes Neon-Rot-Thumbnail (siehe
+      // app.js maybeCaptureThumbnail), damit die Optik über die ganze Bibliothek einheitlich ist.
     }
   });
 
