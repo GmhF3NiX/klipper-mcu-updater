@@ -39,13 +39,16 @@ Name: "autostart"; Description: "PrintArchive bei jedem Windows-Start automatisc
 Source: "dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+; Startet ohne sichtbares Konsolenfenster (siehe PrintArchiveHidden.vbs) - PrintArchive.bat selbst
+; bleibt im Installationsordner fuer alle, die die Server-Logs mal live sehen wollen.
+Name: "{group}\{#MyAppName}"; Filename: "{app}\PrintArchiveHidden.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\node.exe"
+Name: "{group}\PrintArchive beenden"; Filename: "{app}\StopPrintArchive.bat"; WorkingDir: "{app}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
-Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: autostart
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\PrintArchiveHidden.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\node.exe"; Tasks: desktopicon
+Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\PrintArchiveHidden.vbs"; WorkingDir: "{app}"; Tasks: autostart
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\PrintArchiveHidden.vbs"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent shellexec
 
 [UninstallDelete]
 ; Datenbank/Thumbnails/Bibliothek bleiben absichtlich erhalten (liegen unter %APPDATA%\PrintArchive
@@ -57,6 +60,7 @@ Type: files; Name: "{app}\printarchive-config.bat"
 
 [Code]
 var
+  LibraryDirPage: TInputDirWizardPage;
   SpoolmanChoicePage: TInputOptionWizardPage;
   SpoolmanServerPage: TInputQueryWizardPage;
   HaChoicePage: TInputOptionWizardPage;
@@ -64,7 +68,16 @@ var
 
 procedure InitializeWizard;
 begin
-  SpoolmanChoicePage := CreateInputOptionPage(wpSelectTasks,
+  LibraryDirPage := CreateInputDirPage(wpSelectDir,
+    'Bibliotheksordner', 'Wo liegen deine STL/3MF/OBJ-Dateien?',
+    'PrintArchive durchsucht diesen Ordner (inklusive Unterordner) nach Modellen. Wenn er ' +
+    'noch nicht existiert, wird er beim ersten Start automatisch angelegt. Weitere Ordner ' +
+    'lassen sich spaeter jederzeit ueber "+ ORDNER" in der App dazu nehmen.',
+    False, '');
+  LibraryDirPage.Add('');
+  LibraryDirPage.Values[0] := ExpandConstant('{userdocs}\PrintArchive\Bibliothek');
+
+  SpoolmanChoicePage := CreateInputOptionPage(LibraryDirPage.ID,
     'Spoolman', 'Nutzt du Spoolman fuer die Filament-Verwaltung?',
     'Wenn ja, wird PrintArchive beim ersten Start automatisch damit verbunden ' +
     '(Preis/kg und Restgewicht kommen dann direkt von dort). Spaeter jederzeit ' +
@@ -117,8 +130,14 @@ begin
   if CurStep = ssPostInstall then
   begin
     N := 0;
-    SetArrayLength(Lines, 4);
+    SetArrayLength(Lines, 5);
     Lines[N] := '@echo off'; N := N + 1;
+
+    if Trim(LibraryDirPage.Values[0]) <> '' then
+    begin
+      Lines[N] := 'set LIBRARY_PATH=' + Trim(LibraryDirPage.Values[0]);
+      N := N + 1;
+    end;
 
     if (SpoolmanChoicePage.SelectedValueIndex = 0) and (Trim(SpoolmanServerPage.Values[0]) <> '') then
     begin

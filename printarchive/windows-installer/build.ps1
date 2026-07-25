@@ -29,6 +29,8 @@ Copy-Item "$Root\node_modules" "$Dist\node_modules" -Recurse
 Copy-Item "$Root\package.json" "$Dist\package.json"
 Copy-Item $NodeExe "$Dist\node.exe"
 Copy-Item "$PSScriptRoot\PrintArchive.bat" "$Dist\PrintArchive.bat"
+Copy-Item "$PSScriptRoot\PrintArchiveHidden.vbs" "$Dist\PrintArchiveHidden.vbs"
+Copy-Item "$PSScriptRoot\StopPrintArchive.bat" "$Dist\StopPrintArchive.bat"
 
 Write-Output "Kompiliere Installer ..."
 $Iscc = (Get-Command "ISCC.exe" -ErrorAction SilentlyContinue).Source

@@ -44,12 +44,23 @@ Kosten-Schätzung trotzdem, nur ohne Live-Daten bzw. mit manueller Preis-Eingabe
 
 ## Installation — Windows
 
+> **Windows SmartScreen wird warnen** ("Der Computer wurde durch Windows geschützt") — das ist
+> normal für unsignierte Open-Source-Software, eine Signatur kostet ein kostenpflichtiges
+> Code-Signing-Zertifikat. Auf **"Weitere Informationen"** und dann **"Trotzdem ausführen"**
+> klicken. Wer's nicht glauben will: Quellcode liegt komplett in diesem Repo.
+
 1. Neuestes `PrintArchive-Setup.exe` von den [Releases](../../releases) laden und starten
-2. Assistent durchklicken: optional Spoolman (IP + Port, Standard 7912) und Home Assistant
-   (IP + Port, Standard 8123) einrichten, Desktop-Verknüpfung / Autostart nach Wunsch
-3. Fertig — Browser öffnet automatisch `http://localhost:8420`
-4. Bibliothek liegt unter `Dokumente\PrintArchive\Bibliothek`, Datenbank unter
-   `%APPDATA%\PrintArchive`. Weitere Ordner (beliebiger Pfad) über **➕ ORDNER** hinzufügen.
+2. Assistent durchklicken:
+   - **Bibliotheksordner** wählen (Standard: `Dokumente\PrintArchive\Bibliothek`) — wird beim
+     ersten Start automatisch angelegt, falls er noch nicht existiert
+   - optional Spoolman (IP + Port, Standard 7912) und Home Assistant (IP + Port, Standard 8123)
+     einrichten
+   - Desktop-Verknüpfung / Autostart nach Wunsch
+3. Fertig — Browser öffnet automatisch `http://localhost:8420`. Läuft danach ohne sichtbares
+   Konsolenfenster im Hintergrund; zum Beenden die Verknüpfung **"PrintArchive beenden"** im
+   Startmenü-Ordner nutzen.
+4. Datenbank liegt unter `%APPDATA%\PrintArchive`. Weitere Ordner (beliebiger Pfad) über
+   **➕ ORDNER** in der App hinzufügen.
 
 Kein separates Node.js-Setup nötig (gebündelt). Sauberer Deinstaller über "Programme" bzw.
 Startmenü — Bibliothek/Datenbank bleiben dabei erhalten.

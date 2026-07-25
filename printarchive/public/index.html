@@ -138,7 +138,7 @@
     .sidebar{ width:100%; position:relative; top:0; }
   }
 
-  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:12px; }
   .card{
     background:var(--card); border:1px solid rgba(240,87,90,0.4); border-radius:var(--radius);
     padding:0; cursor:pointer; overflow:hidden; transition:border-color .2s ease, transform .15s ease, box-shadow .2s ease;
@@ -261,6 +261,8 @@
   .dup-file-row:first-child{ border-top:none; }
   .dup-file-row .path{ color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .dup-file-row .size{ flex-shrink:0; color:var(--cyan); }
+  .dup-progress-bar{ height:8px; background:var(--bg2); border:1px solid var(--grid); border-radius:4px; overflow:hidden; margin-bottom:12px; }
+  .dup-progress-bar > div{ height:100%; width:0%; background:var(--magenta); box-shadow:0 0 10px -2px var(--magenta); transition:width .2s ease; }
 </style>
 </head>
 <body>
@@ -410,8 +412,9 @@
       <div class="hint" style="border-top:1px solid var(--grid); border-top-style:dashed; margin-top:16px; padding-top:14px;">
         NEUES PROFIL ANLEGEN
       </div>
-      <div class="settings-row" style="margin-top:10px; flex-wrap:wrap;">
-        <input type="text" id="npName" placeholder="Name (z.B. Rapid PETG fein)" style="flex:1 1 200px;">
+      <div class="settings-field" style="margin-top:10px; margin-bottom:0;">
+        <label for="npName">NAME * (PFLICHTFELD, z.B. "Rapid PETG fein")</label>
+        <input type="text" id="npName" placeholder="Name eingeben…">
       </div>
       <div class="settings-row" style="margin-top:8px; flex-wrap:wrap; gap:12px;">
         <div class="settings-field" style="margin-bottom:0; flex:1 1 120px;">
@@ -447,6 +450,7 @@
       </div>
       <div class="settings-row" style="margin-top:12px;">
         <button class="primary" id="createProfileBtn" type="button">+ PROFIL ANLEGEN</button>
+        <span class="ha-status" id="profileStatus"></span>
       </div>
       <div class="hint">
         Dichte/Preis werden nur genutzt, wenn beim Berechnen keine Spoolman-Spule ausgewählt ist —
@@ -542,10 +546,11 @@
       <button class="close-btn" id="closeDuplicates">×</button>
     </div>
     <div class="modal-body">
-      <div class="settings-row" style="margin-bottom:12px;">
+      <div class="settings-row" style="margin-bottom:8px;">
         <button class="primary" id="startDupScanBtn" type="button">🔍 SCAN STARTEN</button>
         <span class="ha-status" id="dupStatus"></span>
       </div>
+      <div class="dup-progress-bar" id="dupProgressBar" style="display:none;"><div id="dupProgressFill"></div></div>
       <div id="dupGroups"></div>
       <div class="hint">
         Vergleicht Dateien per SHA-256-Inhalts-Hash (nicht nur Name/Größe). Der erste Scan liest

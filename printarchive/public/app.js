@@ -287,7 +287,12 @@ rootsBackdrop.addEventListener('click', (e) => { if (e.target === rootsBackdrop)
 createRootBtn.addEventListener('click', async () => {
   const label = nrLabelInput.value.trim();
   const subpath = nrSubpathInput.value.trim();
-  if (!label || !subpath) return;
+  if (!label || !subpath) {
+    rootsStatus.textContent = '✗ Name und Pfad sind beide Pflichtfelder';
+    rootsStatus.className = 'ha-status err';
+    (!label ? nrLabelInput : nrSubpathInput).focus();
+    return;
+  }
   createRootBtn.disabled = true;
   rootsStatus.textContent = 'scanne…';
   rootsStatus.className = 'ha-status';
@@ -350,7 +355,7 @@ function initViewer() {
 
   const hemi = new THREE.HemisphereLight(0x88ffff, 0x220022, 1.1);
   scene.add(hemi);
-  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  const dir = new THREE.DirectionalLight(0xffffff, 1.3);
   dir.position.set(1, 1, 1);
   scene.add(dir);
 
@@ -494,7 +499,7 @@ function initBatchRenderer() {
   batchRenderer.setSize(320, 320);
   batchRenderer.toneMapping = THREE.ACESFilmicToneMapping;
   batchScene.add(new THREE.HemisphereLight(0x88ffff, 0x220022, 1.1));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  const dir = new THREE.DirectionalLight(0xffffff, 1.3);
   dir.position.set(1, 1, 1);
   batchScene.add(dir);
 
@@ -542,6 +547,15 @@ async function generateOneThumbnail(f) {
   batchScene.add(object);
 
   const box = new THREE.Box3().setFromObject(object);
+  // Gleiche Absicherung wie frameObject() im Live-Viewer: ein leeres Box3 (z.B. 3MF-Dateien ohne
+  // echtes sichtbares Mesh, etwa reine Orca-Profil-Bundles mit .3mf-Endung) macht Größe/Center zu
+  // NaN/-Infinity. Ohne diesen Check würde hier lautlos ein schwarzes Thumbnail hochgeladen statt
+  // dass der Fehler sichtbar wird (zählt jetzt als "fehlgeschlagen" in der Statuszeile).
+  if (box.isEmpty() || !Number.isFinite(box.min.x) || !Number.isFinite(box.max.x)) {
+    batchScene.remove(object);
+    disposeObject(object);
+    throw new Error('keine sichtbare Geometrie gefunden');
+  }
   const size = new THREE.Vector3();
   box.getSize(size);
   const center = new THREE.Vector3();
@@ -560,6 +574,10 @@ async function generateOneThumbnail(f) {
   await uploadThumbnail(f.id, dataUrl);
 }
 
+function nextFrame() {
+  return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
 async function runBatchThumbnails() {
   if (!batchRenderer) initBatchRenderer();
   const all = await fetch('/api/files').then(r => r.json());
@@ -575,7 +593,13 @@ async function runBatchThumbnails() {
       console.warn(`Thumbnail für "${f.filename}" fehlgeschlagen: ${err.message}`);
     }
     done++;
-    if (done % 15 === 0) loadFiles();
+    // Alle paar Dateien die Kachel-Ansicht aktualisieren UND dem Browser zwei Frames Zeit geben,
+    // Klicks/Scrollen zu verarbeiten — sonst wirkt die Seite bei großen Bibliotheken (1000+
+    // Dateien, teils 80MB+ STLs) eingefroren, obwohl im Hintergrund weitergearbeitet wird.
+    if (done % 5 === 0) {
+      loadFiles();
+      await nextFrame();
+    }
   }
   genThumbsStatus.textContent = missing.length
     ? `${done}/${missing.length} fertig${failed ? ` (${failed} fehlgeschlagen)` : ''}`
@@ -1028,10 +1052,20 @@ manageProfilesBtn.addEventListener('click', async () => {
 closeProfilesBtn.addEventListener('click', () => profilesBackdrop.classList.remove('open'));
 profilesBackdrop.addEventListener('click', (e) => { if (e.target === profilesBackdrop) profilesBackdrop.classList.remove('open'); });
 
+const profileStatus = document.getElementById('profileStatus');
+
 createProfileBtn.addEventListener('click', async () => {
-  const name = document.getElementById('npName').value.trim();
-  if (!name) return;
-  await fetch('/api/cost-profiles', {
+  const nameInput = document.getElementById('npName');
+  const name = nameInput.value.trim();
+  if (!name) {
+    profileStatus.textContent = '✗ Name ist ein Pflichtfeld';
+    profileStatus.className = 'ha-status err';
+    nameInput.focus();
+    return;
+  }
+  profileStatus.textContent = 'lege an…';
+  profileStatus.className = 'ha-status';
+  const res = await fetch('/api/cost-profiles', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name,
@@ -1047,8 +1081,16 @@ createProfileBtn.addEventListener('click', async () => {
       filament_price_eur_per_kg: document.getElementById('npPrice').value,
     }),
   });
-  document.getElementById('npName').value = '';
-  await renderProfilesList();
+  if (res.ok) {
+    profileStatus.textContent = `✓ "${name}" angelegt`;
+    profileStatus.className = 'ha-status ok';
+    nameInput.value = '';
+    await renderProfilesList();
+  } else {
+    const err = await res.json().catch(() => ({}));
+    profileStatus.textContent = `✗ ${err.error || 'Anlegen fehlgeschlagen'}`;
+    profileStatus.className = 'ha-status err';
+  }
 });
 
 // ---------- Einstellungen (Strompreis + Home Assistant) ----------
@@ -1189,6 +1231,8 @@ const closeDuplicatesBtn = document.getElementById('closeDuplicates');
 const startDupScanBtn = document.getElementById('startDupScanBtn');
 const dupStatusEl = document.getElementById('dupStatus');
 const dupGroupsEl = document.getElementById('dupGroups');
+const dupProgressBar = document.getElementById('dupProgressBar');
+const dupProgressFill = document.getElementById('dupProgressFill');
 let dupPollTimer = null;
 
 async function renderDuplicateGroups() {
@@ -1213,10 +1257,12 @@ async function pollDupScanStatus() {
   if (s.total > 0) {
     dupStatusEl.textContent = `hashe … ${s.done}/${s.total}`;
     dupStatusEl.className = 'ha-status';
+    dupProgressFill.style.width = `${Math.min((s.done / s.total) * 100, 100)}%`;
   }
   if (!s.running) {
     clearInterval(dupPollTimer);
     dupPollTimer = null;
+    dupProgressBar.style.display = 'none';
     startDupScanBtn.disabled = false;
     startDupScanBtn.textContent = '🔍 SCAN STARTEN';
     dupStatusEl.textContent = '✓ fertig';
@@ -1245,6 +1291,8 @@ startDupScanBtn.addEventListener('click', async () => {
     await renderDuplicateGroups();
     return;
   }
+  dupProgressFill.style.width = '0%';
+  dupProgressBar.style.display = 'block';
   dupPollTimer = setInterval(pollDupScanStatus, 2000);
 });
 
