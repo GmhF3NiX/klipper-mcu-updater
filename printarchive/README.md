@@ -80,6 +80,21 @@ docker compose up -d --build
 In Unraid alternativ über **Docker → Add Container** (Repository `printarchive`, Port
 8420→8420, Volume-Mapping wie in `docker-compose.yml`).
 
+### Unraid — fertiges Template (statt selbst bauen)
+
+Es gibt ein fertiges Community-Applications-Template, das direkt das gebaute Image von
+[GitHub Container Registry](https://github.com/GmhF3NiX/klipper-mcu-updater/pkgs/container/printarchive)
+zieht (`ghcr.io/gmhf3nix/printarchive`), kein `docker compose up --build` nötig:
+
+1. Unraid → **Docker**-Tab → **Add Container** → ganz unten **Template repositories**
+2. URL einfügen: `https://raw.githubusercontent.com/GmhF3NiX/klipper-mcu-updater/main/printarchive/unraid-template/printarchive.xml`
+3. Speichern, dann oben bei **Select a template** "PrintArchive" auswählen
+4. Pfade (Bibliothek/Konfiguration) auf deine echten Shares anpassen, Apply
+
+*(Noch nicht im durchsuchbaren Community-Applications-Store gelistet — dafür bräuchte es eine
+Forum-Registrierung + Prüfung durch das CA-Team. Der Weg oben funktioniert schon jetzt genauso
+gut, nur ohne Suchfunktion in der Apps-Übersicht.)*
+
 ### Env-Variablen (Docker)
 
 | Variable | Default | Bedeutung |

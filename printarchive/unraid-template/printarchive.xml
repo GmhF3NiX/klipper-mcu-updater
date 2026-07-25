@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>PrintArchive</Name>
+  <Repository>ghcr.io/gmhf3nix/printarchive:latest</Repository>
+  <Registry>https://ghcr.io/gmhf3nix/printarchive</Registry>
+  <Branch><Tag>latest</Tag></Branch>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/GmhF3NiX/klipper-mcu-updater/issues</Support>
+  <Project>https://github.com/GmhF3NiX/klipper-mcu-updater/tree/main/printarchive</Project>
+  <Overview>Selbstgehostete STL/3MF/OBJ-Bibliothek mit eigenem Cyberpunk-UI: 3D-Vorschau direkt im Browser, Kosten-Schätzung vor dem Druck, Spoolman- und Home-Assistant-Anbindung, Statistik-Dashboard, Duplikat-Erkennung per Inhalts-Hash. Kein Cloud-Zwang, rührt Originaldateien nicht an.</Overview>
+  <Category>Tools: Network:Web MediaApp:Other</Category>
+  <WebUI>http://[IP]:[PORT:8420]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/GmhF3NiX/klipper-mcu-updater/main/printarchive/unraid-template/printarchive.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/GmhF3NiX/klipper-mcu-updater/main/printarchive/docs/logo.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText>PrintArchive unterstützen</DonateText>
+  <DonateLink>https://www.paypal.com/paypalme/rapidr3dde</DonateLink>
+  <Requires/>
+  <Config Name="WebUI Port" Target="8420" Default="8420" Mode="tcp" Description="Port für die Weboberfläche" Type="Port" Display="always" Required="true" Mask="false">8420</Config>
+  <Config Name="Bibliothek" Target="/library" Default="/mnt/user/3D Printing/STL" Mode="rw" Description="Ordner mit deinen STL/3MF/OBJ-Dateien (primäre Bibliothek, wird rekursiv durchsucht)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/3D Printing/STL</Config>
+  <Config Name="Konfiguration" Target="/config" Default="/mnt/user/appdata/printarchive/config" Mode="rw" Description="Datenbank + Thumbnail-Cache, muss persistent sein" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printarchive/config</Config>
+  <Config Name="Weitere Freigaben (read-only)" Target="/hostshares" Default="/mnt/user" Mode="ro" Description="Read-only Zugriff auf den kompletten Share-Baum, damit sich im UI über &quot;+ ORDNER&quot; weitere Ordner hinzufügen lassen" Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User-ID, unter der der Prozess im Container läuft (99 = nobody)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group-ID, unter der der Prozess im Container läuft (100 = users)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="Rescan-Intervall" Target="RESCAN_INTERVAL_MINUTES" Default="15" Mode="" Description="Automatischer Re-Scan der Bibliothek, in Minuten" Type="Variable" Display="advanced" Required="false" Mask="false">15</Config>
+</Container>
