@@ -17,6 +17,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=output
 OutputBaseFilename=PrintArchive-Setup
+SetupIconFile=printarchive.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -37,14 +38,15 @@ Name: "autostart"; Description: "PrintArchive bei jedem Windows-Start automatisc
 
 [Files]
 Source: "dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "printarchive.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; Startet ohne sichtbares Konsolenfenster (siehe PrintArchiveHidden.vbs) - PrintArchive.bat selbst
 ; bleibt im Installationsordner fuer alle, die die Server-Logs mal live sehen wollen.
-Name: "{group}\{#MyAppName}"; Filename: "{app}\PrintArchiveHidden.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\node.exe"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\PrintArchiveHidden.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\printarchive.ico"
 Name: "{group}\PrintArchive beenden"; Filename: "{app}\StopPrintArchive.bat"; WorkingDir: "{app}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\PrintArchiveHidden.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\node.exe"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\PrintArchiveHidden.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\printarchive.ico"; Tasks: desktopicon
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\PrintArchiveHidden.vbs"; WorkingDir: "{app}"; Tasks: autostart
 
 [Run]

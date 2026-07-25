@@ -1,3 +1,5 @@
+<img src="docs/logo.png" alt="PrintArchive Logo" width="110">
+
 # PrintArchive
 
 Selbstgehostete STL/3MF/OBJ-Bibliothek mit eigenem Cyberpunk-UI. Backend: Node.js/Express +

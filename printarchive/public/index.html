@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ARCHIVE // 3D-PRINT LIBRARY</title>
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="apple-touch-icon" href="assets/favicon-256.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -204,6 +207,19 @@
     font-family:'Share Tech Mono',monospace; font-size:11.5px; }
   .profile-row .pdel{ background:none; border:none; color:var(--dim); cursor:pointer; font-size:14px; padding:0 4px; }
   .profile-row .pdel:hover{ color:var(--magenta); }
+
+  .folder-browser{ border:1px solid var(--grid); border-radius:var(--radius-sm); margin-top:10px; overflow:hidden; }
+  .fb-head{ display:flex; align-items:center; gap:8px; padding:7px 9px; background:var(--bg2); border-bottom:1px solid var(--grid); }
+  .fb-head button{ padding:4px 10px; font-size:13px; }
+  .fb-head span{ font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--dim);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .fb-list{ max-height:220px; overflow-y:auto; background:var(--bg); }
+  .fb-item{ display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer;
+    font-family:'Share Tech Mono',monospace; font-size:12.5px; border-bottom:1px solid var(--grid); }
+  .fb-item:last-child{ border-bottom:none; }
+  .fb-item:hover{ background:rgba(23,224,240,0.08); color:var(--cyan); }
+  .fb-empty{ padding:14px 12px; color:var(--dim); font-family:'Share Tech Mono',monospace; font-size:11.5px; }
+  .fb-foot{ display:flex; justify-content:flex-end; gap:8px; padding:8px 9px; background:var(--bg2); border-top:1px solid var(--grid); }
   .job-row{ border:1px solid var(--grid); background:var(--bg); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:8px; font-family:'Share Tech Mono',monospace; font-size:11.5px; }
   .job-row .job-top{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; color:var(--dim); margin-bottom:6px; }
   .job-row .job-cost{ color:var(--cyan); }
@@ -259,8 +275,9 @@
   .dup-group-head{ font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--magenta); margin-bottom:6px; letter-spacing:1px; }
   .dup-file-row{ display:flex; justify-content:space-between; gap:10px; font-family:'Share Tech Mono',monospace; font-size:11.5px; padding:5px 0; border-top:1px dashed var(--grid); }
   .dup-file-row:first-child{ border-top:none; }
-  .dup-file-row .path{ color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dup-file-row .path{ flex:1; min-width:0; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .dup-file-row .size{ flex-shrink:0; color:var(--cyan); }
+  .dup-file-row .reveal-btn{ flex-shrink:0; padding:2px 7px; font-size:12px; line-height:1.4; }
   .dup-progress-bar{ height:8px; background:var(--bg2); border:1px solid var(--grid); border-radius:4px; overflow:hidden; margin-bottom:12px; }
   .dup-progress-bar > div{ height:100%; width:0%; background:var(--magenta); box-shadow:0 0 10px -2px var(--magenta); transition:width .2s ease; }
 </style>
@@ -270,9 +287,12 @@
 <div class="wrap">
 
   <header>
-    <div>
-      <div class="tag">SELF-HOSTED · LOKALE BIBLIOTHEK</div>
-      <h1>3D-PRINT ARCHIVE</h1>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <img src="assets/logo.png" alt="PrintArchive" style="width:52px; height:52px; border-radius:12px; box-shadow:0 0 18px -4px rgba(61,139,255,0.7);">
+      <div>
+        <div class="tag">SELF-HOSTED · LOKALE BIBLIOTHEK</div>
+        <h1>3D-PRINT ARCHIVE</h1>
+      </div>
     </div>
     <div style="display:flex; align-items:center; gap:14px;">
       <div class="stat-tiles" id="statTiles"></div>
@@ -318,6 +338,7 @@
         <button id="manageRootsBtn" title="Weitere Ordner zur Bibliothek hinzufügen">➕ ORDNER</button>
         <button id="duplicatesBtn" title="Doppelte Dateien per Inhalts-Hash finden (löscht nichts automatisch)">🔍 DUPLIKATE</button>
         <span class="ha-status" id="genThumbsStatus"></span>
+        <div class="dup-progress-bar" id="thumbProgressBar" style="display:none; width:140px; margin-bottom:0;"><div id="thumbProgressFill"></div></div>
       </div>
 
       <div class="rule"></div>
@@ -479,12 +500,30 @@
       </div>
       <div class="settings-field">
         <label id="nrSubpathLabel">PFAD (relativ zu /mnt/user auf deinem Unraid)</label>
-        <input type="text" id="nrSubpath" placeholder="z.B. warez/3d-modelle">
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="nrSubpath" placeholder="z.B. warez/3d-modelle" style="flex:1;">
+          <button type="button" id="browseFolderBtn" title="Ordner auf dem Server durchsuchen">📁 DURCHSUCHEN</button>
+        </div>
       </div>
+
+      <div id="folderBrowser" class="folder-browser" style="display:none;">
+        <div class="fb-head">
+          <button type="button" id="fbUp" title="Eine Ebene höher">↑</button>
+          <span id="fbPath"></span>
+        </div>
+        <div id="fbList" class="fb-list"></div>
+        <div class="fb-foot">
+          <button type="button" id="fbCancel">Abbrechen</button>
+          <button type="button" class="primary" id="fbChoose">✓ Diesen Ordner wählen</button>
+        </div>
+      </div>
+
       <div class="settings-row">
         <button class="primary" id="createRootBtn" type="button">+ ORDNER HINZUFÜGEN</button>
         <span class="ha-status" id="rootsStatus"></span>
       </div>
+      <div class="dup-progress-bar" id="rootsThumbProgressBar" style="display:none;"><div id="rootsThumbProgressFill"></div></div>
+      <div class="ha-status" id="rootsThumbStatus" style="display:block; margin-top:-6px;"></div>
       <div class="hint" id="rootsHint">
         Der Container sieht read-only den kompletten Unraid-Share-Baum unter <code>/mnt/user</code> —
         gib hier den Pfad relativ dazu an (z.B. für <code>/mnt/user/warez/3d-modelle</code> also

@@ -268,6 +268,7 @@ let runtimeInfo = null;
 
 manageRootsBtn.addEventListener('click', async () => {
   rootsStatus.textContent = '';
+  folderBrowserEl.style.display = 'none';
   if (!runtimeInfo) {
     runtimeInfo = await fetch('/api/runtime-info').then(r => r.json()).catch(() => ({ sandboxed: true }));
     if (!runtimeInfo.sandboxed) {
@@ -283,6 +284,71 @@ manageRootsBtn.addEventListener('click', async () => {
 });
 closeRootsBtn.addEventListener('click', () => rootsBackdrop.classList.remove('open'));
 rootsBackdrop.addEventListener('click', (e) => { if (e.target === rootsBackdrop) rootsBackdrop.classList.remove('open'); });
+
+// ---------- Ordner-Browser (statt Pfad von Hand eintippen) ----------
+const browseFolderBtn = document.getElementById('browseFolderBtn');
+const folderBrowserEl = document.getElementById('folderBrowser');
+const fbPathEl = document.getElementById('fbPath');
+const fbListEl = document.getElementById('fbList');
+const fbUpBtn = document.getElementById('fbUp');
+const fbCancelBtn = document.getElementById('fbCancel');
+const fbChooseBtn = document.getElementById('fbChoose');
+let fbState = { path: '', parent: null };
+let fbHostBase = null; // im Docker/sandboxed-Fall: absoluter Pfad von HOSTSHARES_PATH auf dem Server
+
+async function loadFolderBrowser(targetPath) {
+  fbListEl.innerHTML = '<div class="fb-empty">lädt…</div>';
+  const res = await fetch('/api/browse-folders?path=' + encodeURIComponent(targetPath || ''));
+  const data = await res.json();
+  if (!res.ok) {
+    fbListEl.innerHTML = `<div class="fb-empty">✗ ${data.error || 'Fehler beim Lesen'}</div>`;
+    return;
+  }
+  fbState = data;
+  if (runtimeInfo && runtimeInfo.sandboxed && data.parent === null) fbHostBase = data.path;
+  fbPathEl.textContent = data.path || 'Laufwerke';
+  fbUpBtn.style.visibility = data.parent === null ? 'hidden' : 'visible';
+
+  const items = data.drives
+    ? data.drives.map(d => ({ name: d, full: d, icon: '💽' }))
+    : data.folders.map(name => ({
+        name, icon: '📁',
+        full: data.path.replace(/[\\/]+$/, '') + '/' + name,
+      }));
+
+  fbListEl.innerHTML = items.length
+    ? items.map(it => `<div class="fb-item" data-path="${it.full.replace(/"/g, '&quot;')}">${it.icon} ${it.name}</div>`).join('')
+    : '<div class="fb-empty">keine Unterordner</div>';
+
+  fbListEl.querySelectorAll('.fb-item').forEach(el => {
+    el.addEventListener('click', () => loadFolderBrowser(el.dataset.path));
+  });
+}
+
+browseFolderBtn.addEventListener('click', () => {
+  folderBrowserEl.style.display = 'block';
+  // Sandboxed (Docker): das Feld enthält bereits einen relativen Pfad, den der Browse-Endpoint so
+  // nicht auflösen kann - dort immer frisch am /hostshares-Wurzelpunkt starten. Nativ (Windows)
+  // enthält das Feld schon einen vollständigen Pfad, den man direkt weiterverwenden kann.
+  loadFolderBrowser(runtimeInfo && runtimeInfo.sandboxed ? '' : nrSubpathInput.value.trim());
+});
+fbUpBtn.addEventListener('click', () => {
+  if (fbState.parent !== null) loadFolderBrowser(fbState.parent);
+});
+fbCancelBtn.addEventListener('click', () => { folderBrowserEl.style.display = 'none'; });
+fbChooseBtn.addEventListener('click', () => {
+  if (!fbState.path) return;
+  let subpath = fbState.path;
+  if (runtimeInfo && runtimeInfo.sandboxed && fbHostBase) {
+    subpath = fbState.path.slice(fbHostBase.length).replace(/^[\\/]+/, '');
+  }
+  nrSubpathInput.value = subpath;
+  if (!nrLabelInput.value.trim()) {
+    const parts = fbState.path.split(/[\\/]/).filter(Boolean);
+    nrLabelInput.value = parts[parts.length - 1] || fbState.path;
+  }
+  folderBrowserEl.style.display = 'none';
+});
 
 createRootBtn.addEventListener('click', async () => {
   const label = nrLabelInput.value.trim();
@@ -309,6 +375,13 @@ createRootBtn.addEventListener('click', async () => {
     nrSubpathInput.value = '';
     await renderRootsList();
     await Promise.all([loadFiles(), loadStats(), loadFolders()]);
+    // Neu gescannte Dateien haben noch keine Vorschaubilder - gleich im Hintergrund erzeugen,
+    // statt den Nutzer erst manuell auf "VORSCHAUBILDER" klicken zu lassen.
+    if (!batchRunning) {
+      batchRunning = true;
+      genThumbsBtn.textContent = '■ STOPPEN';
+      runBatchThumbnails();
+    }
   } else {
     const messages = {
       not_a_directory: 'Pfad existiert nicht oder ist kein Ordner (relativ zu /mnt/user)',
@@ -489,7 +562,21 @@ function maybeCaptureThumbnail(f) {
 // jede der >1000 Dateien einzeln öffnen muss, nur um ein Thumbnail zu bekommen.
 const genThumbsBtn = document.getElementById('genThumbsBtn');
 const genThumbsStatus = document.getElementById('genThumbsStatus');
+const thumbProgressBar = document.getElementById('thumbProgressBar');
+const thumbProgressFill = document.getElementById('thumbProgressFill');
+const rootsThumbProgressBar = document.getElementById('rootsThumbProgressBar');
+const rootsThumbProgressFill = document.getElementById('rootsThumbProgressFill');
+const rootsThumbStatus = document.getElementById('rootsThumbStatus');
 let batchScene, batchCamera, batchRenderer, batchComposer, batchRunning = false;
+
+function setThumbProgress(active, done, total) {
+  const pct = total ? Math.min((done / total) * 100, 100) : 0;
+  thumbProgressBar.style.display = active ? 'block' : 'none';
+  thumbProgressFill.style.width = `${pct}%`;
+  rootsThumbProgressBar.style.display = active ? 'block' : 'none';
+  rootsThumbProgressFill.style.width = `${pct}%`;
+  rootsThumbStatus.textContent = active ? `Vorschaubilder werden erzeugt … ${done}/${total}` : '';
+}
 
 function initBatchRenderer() {
   batchScene = new THREE.Scene();
@@ -583,6 +670,7 @@ async function runBatchThumbnails() {
   const all = await fetch('/api/files').then(r => r.json());
   const missing = all.filter(f => !f.thumbnail);
   let done = 0, failed = 0;
+  setThumbProgress(true, 0, missing.length);
   for (const f of missing) {
     if (!batchRunning) break; // per erneutem Klick (STOPPEN) abgebrochen
     genThumbsStatus.textContent = `${done}/${missing.length}…`;
@@ -593,6 +681,7 @@ async function runBatchThumbnails() {
       console.warn(`Thumbnail für "${f.filename}" fehlgeschlagen: ${err.message}`);
     }
     done++;
+    setThumbProgress(true, done, missing.length);
     // Alle paar Dateien die Kachel-Ansicht aktualisieren UND dem Browser zwei Frames Zeit geben,
     // Klicks/Scrollen zu verarbeiten — sonst wirkt die Seite bei großen Bibliotheken (1000+
     // Dateien, teils 80MB+ STLs) eingefroren, obwohl im Hintergrund weitergearbeitet wird.
@@ -605,6 +694,7 @@ async function runBatchThumbnails() {
     ? `${done}/${missing.length} fertig${failed ? ` (${failed} fehlgeschlagen)` : ''}`
     : 'alle vorhanden';
   genThumbsBtn.textContent = '🖼 VORSCHAUBILDER';
+  setThumbProgress(false, done, missing.length);
   batchRunning = false;
   loadFiles();
 }
@@ -1237,6 +1327,7 @@ let dupPollTimer = null;
 
 async function renderDuplicateGroups() {
   const groups = await fetch('/api/duplicates').then(r => r.json());
+  const canReveal = runtimeInfo && !runtimeInfo.sandboxed;
   dupGroupsEl.innerHTML = groups.length
     ? groups.map(g => `
         <div class="dup-group">
@@ -1245,12 +1336,22 @@ async function renderDuplicateGroups() {
             <div class="dup-file-row">
               <span class="path">${f.rel_path}</span>
               <span class="size">${fmtBytes(f.size_bytes)}</span>
+              ${canReveal ? `<button type="button" class="reveal-btn" data-id="${f.id}" title="Ordner öffnen">📂</button>` : ''}
             </div>
           `).join('')}
         </div>
       `).join('')
     : `<div class="cat-empty">keine Duplikate gefunden</div>`;
 }
+
+dupGroupsEl.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.reveal-btn');
+  if (!btn) return;
+  btn.disabled = true;
+  const res = await fetch(`/api/files/${btn.dataset.id}/reveal`, { method: 'POST' });
+  btn.disabled = false;
+  if (!res.ok) btn.title = 'Konnte Ordner nicht öffnen';
+});
 
 async function pollDupScanStatus() {
   const s = await fetch('/api/duplicates/scan-status').then(r => r.json());
@@ -1274,6 +1375,9 @@ async function pollDupScanStatus() {
 duplicatesBtn.addEventListener('click', async () => {
   duplicatesBackdrop.classList.add('open');
   dupStatusEl.textContent = '';
+  if (!runtimeInfo) {
+    runtimeInfo = await fetch('/api/runtime-info').then(r => r.json()).catch(() => ({ sandboxed: true }));
+  }
   await renderDuplicateGroups();
 });
 closeDuplicatesBtn.addEventListener('click', () => duplicatesBackdrop.classList.remove('open'));

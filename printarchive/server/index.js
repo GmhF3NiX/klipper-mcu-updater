@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { execFile } = require('child_process');
 const express = require('express');
 const db = require('./db');
 const { scanLibrary, LIBRARY_PATH, THUMB_DIR } = require('./scanner');
@@ -478,6 +479,58 @@ app.get('/api/runtime-info', (req, res) => {
   res.json({ sandboxed: IS_SANDBOXED, platform: process.platform });
 });
 
+// ---- Server-seitiger Ordner-Browser fürs "+ ORDNER"-Modal ----
+// Ein natives Windows-Dateiauswahlfenster im Browser gibt es aus Sicherheitsgründen nicht (und
+// würde bei Docker/Fernzugriff ohnehin den falschen Rechner durchsuchen) - stattdessen läuft die
+// Ordnerauswahl serverseitig, exakt auf der Maschine, wo der Pfad später auch gescannt wird.
+function listWindowsDrives() {
+  const drives = [];
+  for (let c = 65; c <= 90; c++) {
+    const drive = String.fromCharCode(c) + ':\\';
+    try { if (fs.existsSync(drive)) drives.push(drive); } catch { /* Laufwerk nicht bereit */ }
+  }
+  return drives;
+}
+
+app.get('/api/browse-folders', (req, res) => {
+  let reqPath = (req.query.path || '').trim();
+
+  if (!reqPath) {
+    if (!IS_SANDBOXED) {
+      return res.json({ path: '', parent: null, folders: [], drives: listWindowsDrives() });
+    }
+    reqPath = HOSTSHARES_PATH;
+  }
+
+  const resolved = path.resolve(reqPath);
+  const base = path.resolve(HOSTSHARES_PATH);
+  if (IS_SANDBOXED && resolved !== base && !resolved.startsWith(base + path.sep)) {
+    return res.status(400).json({ error: 'path_outside_hostshares' });
+  }
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    return res.status(400).json({ error: 'not_a_directory' });
+  }
+
+  let folders = [];
+  try {
+    folders = fs.readdirSync(resolved, { withFileTypes: true })
+      .filter(e => { try { return e.isDirectory(); } catch { return false; } })
+      .map(e => e.name)
+      .filter(name => !name.startsWith('$'))
+      .sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
+  } catch { /* z.B. keine Leserechte - einfach leere Liste zeigen */ }
+
+  const isWinRoot = !IS_SANDBOXED && path.parse(resolved).root === resolved;
+  let parent = null;
+  if (IS_SANDBOXED) {
+    parent = resolved === base ? null : path.dirname(resolved);
+  } else {
+    parent = isWinRoot ? '' : path.dirname(resolved);
+  }
+
+  res.json({ path: resolved, parent, folders, drives: null });
+});
+
 app.get('/api/library-roots', (req, res) => {
   const roots = db.prepare(`SELECT * FROM library_roots ORDER BY id`).all();
   const counts = db.prepare(`SELECT root_id, COUNT(*) c FROM files GROUP BY root_id`).all();
@@ -600,6 +653,23 @@ app.get('/api/duplicates', (req, res) => {
   `).all();
   const getFiles = db.prepare(`SELECT id, filename, rel_path, size_bytes FROM files WHERE content_hash = ? ORDER BY filename`);
   res.json(groups.map(g => ({ hash: g.content_hash, files: getFiles.all(g.content_hash) })));
+});
+
+// Öffnet den Datei-Explorer mit der Datei markiert - macht nur Sinn, wenn Server und Browser auf
+// derselben Maschine laufen (native Windows-Installation), nicht bei Docker/Fernzugriff, wo der
+// Server einen ganz anderen Rechner meint als den, vor dem der Nutzer sitzt.
+app.post('/api/files/:id/reveal', (req, res) => {
+  if (IS_SANDBOXED) return res.status(400).json({ error: 'not_supported' });
+
+  const row = db.prepare(`SELECT abs_path, rel_path FROM files WHERE id = ?`).get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const absPath = row.abs_path || path.join(LIBRARY_PATH, row.rel_path);
+  if (!fs.existsSync(absPath)) return res.status(404).json({ error: 'file_missing_on_disk' });
+
+  // explorer.exe liefert auch bei Erfolg oft einen Exit-Code != 0 zurück (bekannte Windows-
+  // Eigenheit) - der Callback-Fehler ist deshalb kein verlässliches Erfolgssignal, wird ignoriert.
+  execFile('explorer.exe', [`/select,${absPath}`], () => {});
+  res.json({ ok: true });
 });
 
 app.post('/api/rescan', (req, res) => {
