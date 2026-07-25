@@ -265,20 +265,26 @@ async function renderRootsList() {
 }
 
 let runtimeInfo = null;
+// Einmalig beim Laden geholt (statt pro Feature einzeln) - Docker/Sandbox-spezifische UI-Anpassungen
+// (Ordner-Browser-Texte, Downloads-Import-Button, "Ordner öffnen" in den Duplikaten) hängen alle
+// daran, jedes Feature wartet einfach auf dasselbe Promise statt selbst zu fetchen.
+const runtimeInfoReady = (async () => {
+  runtimeInfo = await fetch('/api/runtime-info').then(r => r.json()).catch(() => ({ sandboxed: true }));
+  if (!runtimeInfo.sandboxed) {
+    document.getElementById('nrSubpathLabel').textContent = 'VOLLSTÄNDIGER ORDNERPFAD';
+    nrSubpathInput.placeholder = 'z.B. D:\\Modelle oder C:\\Users\\du\\Documents\\STL';
+    document.getElementById('rootsHint').innerHTML =
+      'Gib hier einen vollständigen Ordnerpfad auf diesem Rechner an. Der Ordner wird beim ' +
+      'Hinzufügen sofort eingescannt und erscheint als eigener Top-Level-Ordner im Baum links.';
+  } else {
+    downloadsBtn.style.display = 'none';
+  }
+})();
 
 manageRootsBtn.addEventListener('click', async () => {
   rootsStatus.textContent = '';
   folderBrowserEl.style.display = 'none';
-  if (!runtimeInfo) {
-    runtimeInfo = await fetch('/api/runtime-info').then(r => r.json()).catch(() => ({ sandboxed: true }));
-    if (!runtimeInfo.sandboxed) {
-      document.getElementById('nrSubpathLabel').textContent = 'VOLLSTÄNDIGER ORDNERPFAD';
-      nrSubpathInput.placeholder = 'z.B. D:\\Modelle oder C:\\Users\\du\\Documents\\STL';
-      document.getElementById('rootsHint').innerHTML =
-        'Gib hier einen vollständigen Ordnerpfad auf diesem Rechner an. Der Ordner wird beim ' +
-        'Hinzufügen sofort eingescannt und erscheint als eigener Top-Level-Ordner im Baum links.';
-    }
-  }
+  await runtimeInfoReady;
   await renderRootsList();
   rootsBackdrop.classList.add('open');
 });
@@ -391,6 +397,67 @@ createRootBtn.addEventListener('click', async () => {
     };
     rootsStatus.textContent = `✗ ${messages[data.error] || data.error}`;
     rootsStatus.className = 'ha-status err';
+  }
+});
+
+// ---------- Import aus dem Windows-Downloads-Ordner (z.B. frisch von Makerworld/Printables) ----------
+const downloadsBtn = document.getElementById('downloadsBtn');
+const downloadsBackdrop = document.getElementById('downloadsBackdrop');
+const closeDownloadsBtn = document.getElementById('closeDownloads');
+const downloadsListEl = document.getElementById('downloadsList');
+const importDownloadsBtn = document.getElementById('importDownloadsBtn');
+const downloadsStatus = document.getElementById('downloadsStatus');
+
+async function renderDownloadsList() {
+  const data = await fetch('/api/downloads-scan').then(r => r.json());
+  downloadsListEl.innerHTML = data.files && data.files.length
+    ? data.files.map(f => `
+        <label class="dl-item">
+          <input type="checkbox" value="${f.name.replace(/"/g, '&quot;')}">
+          <span class="name">${f.name}</span>
+          <span class="meta">${fmtBytes(f.size)}</span>
+        </label>
+      `).join('')
+    : `<div class="cat-empty">keine STL/3MF/OBJ-Dateien in ${data.dir || 'Downloads'} gefunden</div>`;
+}
+
+downloadsBtn.addEventListener('click', async () => {
+  downloadsStatus.textContent = '';
+  downloadsBackdrop.classList.add('open');
+  await renderDownloadsList();
+});
+closeDownloadsBtn.addEventListener('click', () => downloadsBackdrop.classList.remove('open'));
+downloadsBackdrop.addEventListener('click', (e) => { if (e.target === downloadsBackdrop) downloadsBackdrop.classList.remove('open'); });
+
+importDownloadsBtn.addEventListener('click', async () => {
+  const filenames = Array.from(downloadsListEl.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+  if (!filenames.length) {
+    downloadsStatus.textContent = '✗ nichts ausgewählt';
+    downloadsStatus.className = 'ha-status err';
+    return;
+  }
+  importDownloadsBtn.disabled = true;
+  downloadsStatus.textContent = 'importiere…';
+  downloadsStatus.className = 'ha-status';
+  const res = await fetch('/api/downloads-scan/import', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filenames }),
+  });
+  const data = await res.json();
+  importDownloadsBtn.disabled = false;
+  if (res.ok) {
+    downloadsStatus.textContent = `✓ ${data.imported.length} importiert${data.skipped.length ? `, ${data.skipped.length} übersprungen` : ''}`;
+    downloadsStatus.className = 'ha-status ok';
+    await renderDownloadsList();
+    await Promise.all([loadFiles(), loadStats(), loadFolders()]);
+    if (!batchRunning) {
+      batchRunning = true;
+      genThumbsBtn.textContent = '■ STOPPEN';
+      runBatchThumbnails();
+    }
+  } else {
+    downloadsStatus.textContent = `✗ ${data.error || 'Import fehlgeschlagen'}`;
+    downloadsStatus.className = 'ha-status err';
   }
 });
 
@@ -567,15 +634,22 @@ const thumbProgressFill = document.getElementById('thumbProgressFill');
 const rootsThumbProgressBar = document.getElementById('rootsThumbProgressBar');
 const rootsThumbProgressFill = document.getElementById('rootsThumbProgressFill');
 const rootsThumbStatus = document.getElementById('rootsThumbStatus');
+const downloadsThumbProgressBar = document.getElementById('downloadsThumbProgressBar');
+const downloadsThumbProgressFill = document.getElementById('downloadsThumbProgressFill');
+const downloadsThumbStatus = document.getElementById('downloadsThumbStatus');
 let batchScene, batchCamera, batchRenderer, batchComposer, batchRunning = false;
 
 function setThumbProgress(active, done, total) {
   const pct = total ? Math.min((done / total) * 100, 100) : 0;
+  const label = active ? `Vorschaubilder werden erzeugt … ${done}/${total}` : '';
   thumbProgressBar.style.display = active ? 'block' : 'none';
   thumbProgressFill.style.width = `${pct}%`;
   rootsThumbProgressBar.style.display = active ? 'block' : 'none';
   rootsThumbProgressFill.style.width = `${pct}%`;
-  rootsThumbStatus.textContent = active ? `Vorschaubilder werden erzeugt … ${done}/${total}` : '';
+  rootsThumbStatus.textContent = label;
+  downloadsThumbProgressBar.style.display = active ? 'block' : 'none';
+  downloadsThumbProgressFill.style.width = `${pct}%`;
+  downloadsThumbStatus.textContent = label;
 }
 
 function initBatchRenderer() {
@@ -1329,9 +1403,13 @@ async function renderDuplicateGroups() {
   const groups = await fetch('/api/duplicates').then(r => r.json());
   const canReveal = runtimeInfo && !runtimeInfo.sandboxed;
   dupGroupsEl.innerHTML = groups.length
-    ? groups.map(g => `
+    ? groups.map(g => {
+        // SHA-256 vergleicht Inhalt, nicht Namen - findet also auch umbenannte/kopierte
+        // Duplikate. Ohne Hinweis wirkt das schnell wie ein Bug ("die heißen doch anders").
+        const namesDiffer = new Set(g.files.map(f => f.filename)).size > 1;
+        return `
         <div class="dup-group">
-          <div class="dup-group-head">${g.files.length} IDENTISCHE DATEIEN</div>
+          <div class="dup-group-head">${g.files.length} IDENTISCHE DATEIEN${namesDiffer ? ' <span class="dup-renamed-badge">· unterschiedlich benannt, gleicher Inhalt</span>' : ''}</div>
           ${g.files.map(f => `
             <div class="dup-file-row">
               <span class="path">${f.rel_path}</span>
@@ -1340,7 +1418,8 @@ async function renderDuplicateGroups() {
             </div>
           `).join('')}
         </div>
-      `).join('')
+      `;
+      }).join('')
     : `<div class="cat-empty">keine Duplikate gefunden</div>`;
 }
 
@@ -1375,9 +1454,7 @@ async function pollDupScanStatus() {
 duplicatesBtn.addEventListener('click', async () => {
   duplicatesBackdrop.classList.add('open');
   dupStatusEl.textContent = '';
-  if (!runtimeInfo) {
-    runtimeInfo = await fetch('/api/runtime-info').then(r => r.json()).catch(() => ({ sandboxed: true }));
-  }
+  await runtimeInfoReady;
   await renderDuplicateGroups();
 });
 closeDuplicatesBtn.addEventListener('click', () => duplicatesBackdrop.classList.remove('open'));

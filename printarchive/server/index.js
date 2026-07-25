@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { execFile } = require('child_process');
 const express = require('express');
 const db = require('./db');
@@ -670,6 +671,57 @@ app.post('/api/files/:id/reveal', (req, res) => {
   // Eigenheit) - der Callback-Fehler ist deshalb kein verlässliches Erfolgssignal, wird ignoriert.
   execFile('explorer.exe', [`/select,${absPath}`], () => {});
   res.json({ ok: true });
+});
+
+// ---- Import aus dem Windows-Downloads-Ordner (z.B. frisch von Makerworld/Printables geladen) ----
+// Macht wie der Ordner-Browser nur nativ Sinn - bei Docker/Fernzugriff hat der Server keinen
+// Zugriff auf den Downloads-Ordner des Nutzers (der sitzt ja an einem ganz anderen Rechner).
+const DOWNLOADS_DIR = path.join(os.homedir(), 'Downloads');
+const IMPORTABLE_EXT = new Set(['stl', '3mf', 'obj']);
+
+app.get('/api/downloads-scan', (req, res) => {
+  if (IS_SANDBOXED) return res.status(400).json({ error: 'not_supported' });
+  if (!fs.existsSync(DOWNLOADS_DIR)) return res.json({ dir: DOWNLOADS_DIR, files: [] });
+
+  const files = fs.readdirSync(DOWNLOADS_DIR, { withFileTypes: true })
+    .filter(e => { try { return e.isFile(); } catch { return false; } })
+    .map(e => e.name)
+    .filter(name => IMPORTABLE_EXT.has(path.extname(name).slice(1).toLowerCase()))
+    .map(name => {
+      const st = fs.statSync(path.join(DOWNLOADS_DIR, name));
+      return { name, size: st.size, mtime: st.mtimeMs };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+
+  res.json({ dir: DOWNLOADS_DIR, files });
+});
+
+app.post('/api/downloads-scan/import', (req, res) => {
+  if (IS_SANDBOXED) return res.status(400).json({ error: 'not_supported' });
+  const names = Array.isArray(req.body.filenames) ? req.body.filenames : [];
+  const targetDir = path.join(LIBRARY_PATH, 'Downloads-Import');
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  const imported = [];
+  const skipped = [];
+  for (const rawName of names) {
+    const safeName = path.basename(rawName); // gegen Path-Traversal (../..) aus dem Request-Body
+    const src = path.join(DOWNLOADS_DIR, safeName);
+    if (!fs.existsSync(src) || !fs.statSync(src).isFile()) { skipped.push(safeName); continue; }
+
+    let dest = path.join(targetDir, safeName);
+    if (fs.existsSync(dest)) {
+      const ext = path.extname(safeName);
+      const base = path.basename(safeName, ext);
+      let n = 1;
+      while (fs.existsSync(dest)) { dest = path.join(targetDir, `${base}_${n}${ext}`); n++; }
+    }
+    fs.copyFileSync(src, dest);
+    imported.push(path.basename(dest));
+  }
+
+  const scanResult = scanLibrary();
+  res.json({ ok: true, imported, skipped, ...scanResult });
 });
 
 app.post('/api/rescan', (req, res) => {

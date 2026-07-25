@@ -220,6 +220,13 @@
   .fb-item:hover{ background:rgba(23,224,240,0.08); color:var(--cyan); }
   .fb-empty{ padding:14px 12px; color:var(--dim); font-family:'Share Tech Mono',monospace; font-size:11.5px; }
   .fb-foot{ display:flex; justify-content:flex-end; gap:8px; padding:8px 9px; background:var(--bg2); border-top:1px solid var(--grid); }
+
+  .dl-item{ display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--grid);
+    background:var(--bg); border-radius:var(--radius-sm); margin-bottom:6px;
+    font-family:'Share Tech Mono',monospace; font-size:12px; }
+  .dl-item input[type=checkbox]{ flex-shrink:0; width:15px; height:15px; accent-color:var(--magenta); }
+  .dl-item .name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dl-item .meta{ flex-shrink:0; color:var(--dim); font-size:10.5px; }
   .job-row{ border:1px solid var(--grid); background:var(--bg); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:8px; font-family:'Share Tech Mono',monospace; font-size:11.5px; }
   .job-row .job-top{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; color:var(--dim); margin-bottom:6px; }
   .job-row .job-cost{ color:var(--cyan); }
@@ -273,6 +280,7 @@
   /* Duplikate */
   .dup-group{ border:1px solid var(--grid); background:var(--bg); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:10px; }
   .dup-group-head{ font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--magenta); margin-bottom:6px; letter-spacing:1px; }
+  .dup-renamed-badge{ color:var(--cyan); text-transform:none; letter-spacing:0; }
   .dup-file-row{ display:flex; justify-content:space-between; gap:10px; font-family:'Share Tech Mono',monospace; font-size:11.5px; padding:5px 0; border-top:1px dashed var(--grid); }
   .dup-file-row:first-child{ border-top:none; }
   .dup-file-row .path{ flex:1; min-width:0; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -336,6 +344,7 @@
         <button class="primary" id="rescanBtn">↻ RESCAN</button>
         <button id="genThumbsBtn" title="Für alle Dateien ohne Vorschaubild eins im Hintergrund erzeugen">🖼 VORSCHAUBILDER</button>
         <button id="manageRootsBtn" title="Weitere Ordner zur Bibliothek hinzufügen">➕ ORDNER</button>
+        <button id="downloadsBtn" title="STL/3MF/OBJ-Dateien aus deinem Downloads-Ordner importieren (z.B. von Makerworld/Printables)">📥 DOWNLOADS</button>
         <button id="duplicatesBtn" title="Doppelte Dateien per Inhalts-Hash finden (löscht nichts automatisch)">🔍 DUPLIKATE</button>
         <span class="ha-status" id="genThumbsStatus"></span>
         <div class="dup-progress-bar" id="thumbProgressBar" style="display:none; width:140px; margin-bottom:0;"><div id="thumbProgressFill"></div></div>
@@ -529,6 +538,30 @@
         gib hier den Pfad relativ dazu an (z.B. für <code>/mnt/user/warez/3d-modelle</code> also
         <code>warez/3d-modelle</code>). Der Ordner wird beim Hinzufügen sofort eingescannt und
         erscheint als eigener Top-Level-Ordner im Baum links.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="downloadsBackdrop">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-head">
+      <h2>AUS DOWNLOADS IMPORTIEREN</h2>
+      <button class="close-btn" id="closeDownloads">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="downloadsList"></div>
+      <div class="settings-row" style="margin-top:12px;">
+        <button class="primary" id="importDownloadsBtn" type="button">📥 AUSGEWÄHLTE IMPORTIEREN</button>
+        <span class="ha-status" id="downloadsStatus"></span>
+      </div>
+      <div class="dup-progress-bar" id="downloadsThumbProgressBar" style="display:none;"><div id="downloadsThumbProgressFill"></div></div>
+      <div class="ha-status" id="downloadsThumbStatus" style="display:block; margin-top:-6px;"></div>
+      <div class="hint">
+        Durchsucht deinen Windows-Downloads-Ordner nach STL/3MF/OBJ-Dateien (z.B. frisch von
+        Makerworld oder Printables geladen) und kopiert die ausgewählten in einen
+        "Downloads-Import"-Unterordner deiner Bibliothek. Vorschaubilder werden danach automatisch
+        erzeugt. Die Originaldatei im Downloads-Ordner bleibt unangetastet.
       </div>
     </div>
   </div>
