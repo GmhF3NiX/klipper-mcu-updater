@@ -294,6 +294,7 @@
       <button class="btn ghost" id="btnExportCSV" type="button">CSV exportieren</button>
       <span style="width:1px;background:var(--line);align-self:stretch;"></span>
       <button class="btn ghost" id="btnGrundwerte" type="button">Grundwerte</button>
+      <button class="btn ghost" id="btnGesamt" type="button">Gesamt&uuml;bersicht</button>
     </div>
     <input type="file" id="fileInputPlan" accept="image/*" class="visually-hidden">
     <input type="file" id="fileInputProject" accept="application/json,.json" class="visually-hidden">
@@ -1292,6 +1293,62 @@
     byId("mCancel").addEventListener("click", closeModal);
   }
   byId("btnGrundwerte").addEventListener("click", openGrundwerteModal);
+
+  // Gesamtübersicht: unabhängig vom Wagen-Filter immer der ganze Zug –
+  // für die Materialbestellung, während man sonst Wagen für Wagen arbeitet.
+  function openGesamtuebersichtModal(){
+    var cables = state.cables;
+    var count = cables.length;
+    var totalDirect=0, totalReserve=0, anyLen=false;
+    var byType={}, byConnector={}, byWagenCount={}, byWagenWeight={};
+    var totalWeightG=0;
+    cables.forEach(function(c){
+      var geo = computeCableGeometry(c);
+      if (geo.lengthReserve!=null){ totalDirect+=geo.lengthDirect; totalReserve+=geo.lengthReserve; anyLen=true; }
+      byType[c.cableType] = (byType[c.cableType]||0) + (geo.lengthReserve||0);
+      [c.connectorFrom, c.connectorTo].forEach(function(conn){ if (conn) byConnector[conn]=(byConnector[conn]||0)+1; });
+      var w = c.wagen || "ohne Wagen";
+      byWagenCount[w] = (byWagenCount[w]||0)+1;
+      var g = computeCableWeightGrams(c);
+      totalWeightG += g;
+      byWagenWeight[w] = (byWagenWeight[w]||0)+g;
+    });
+
+    var typeChipsHtml = Object.keys(byType).length
+      ? Object.keys(byType).map(function(id){
+          var info=cableTypeInfo(id);
+          return '<span class="chip"><span class="dot" style="background:'+info.color+'"></span>'+info.label+' <span class="mono">'+fmt(byType[id])+' m</span></span>';
+        }).join("")
+      : '<span class="hint">Keine Kabel im Projekt.</span>';
+
+    var connChipsHtml = Object.keys(byConnector).length
+      ? Object.keys(byConnector).sort(function(a,b){return a.localeCompare(b,"de");}).map(function(name){
+          return '<span class="chip">'+escapeHtml(name)+' <span class="mono">&times;'+byConnector[name]+'</span></span>';
+        }).join("")
+      : '<span class="hint">Keine Steckertypen eingetragen.</span>';
+
+    var wagenNames = Object.keys(byWagenCount).sort(function(a,b){return a.localeCompare(b,"de",{numeric:true});});
+    var wagenChipsHtml = wagenNames.length
+      ? wagenNames.map(function(w){
+          return '<span class="chip">'+escapeHtml(w)+' <span class="mono">'+byWagenCount[w]+' Kabel &middot; '+fmt(byWagenWeight[w]/1000)+' kg</span></span>';
+        }).join("")
+      : '<span class="hint">Keine Kabel im Projekt.</span>';
+
+    openModal(
+      '<h3>Gesamtübersicht – ganzer Zug</h3>' +
+      '<div class="body">' +
+        '<div class="readout">'+count+' Kabel gesamt &middot; <b>'+(anyLen?fmt(totalReserve):'–')+' m</b> inkl. Reserve (' + (anyLen?fmt(totalDirect):'–') + ' m Luftlinie) &middot; <b>'+fmt(totalWeightG/1000)+' kg</b> Gesamtgewicht</div>' +
+        '<div><div class="aufmass-label" style="padding:0 0 4px;">Kabel je Typ (m, inkl. Reserve)</div><div class="chipbar" style="padding:0;">'+typeChipsHtml+'</div></div>' +
+        '<div><div class="aufmass-label" style="padding:0 0 4px;">Steckverbinder je Typ (Stück)</div><div class="chipbar" style="padding:0;">'+connChipsHtml+'</div></div>' +
+        '<div><div class="aufmass-label" style="padding:0 0 4px;">Je Wagen</div><div class="chipbar" style="padding:0;">'+wagenChipsHtml+'</div></div>' +
+      '</div>' +
+      '<div class="foot">' +
+        '<button class="btn ghost" id="mCancel" type="button">Schlie&szlig;en</button>' +
+      '</div>'
+    );
+    byId("mCancel").addEventListener("click", closeModal);
+  }
+  byId("btnGesamt").addEventListener("click", openGesamtuebersichtModal);
 
   function openCableModal(p1, p2, existing){
     var e = existing || {};
