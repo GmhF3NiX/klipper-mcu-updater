@@ -606,7 +606,7 @@
   byId("btnCancelMode").addEventListener("click", cancelMode);
 
   // ---------- image loading ----------
-  function loadImageFromDataURL(dataURL, name, cb){
+  function loadImageFromDataURL(dataURL, name, cb, onError){
     var img = new Image();
     img.onload = function(){
       state.img = img; state.imgW = img.naturalWidth; state.imgH = img.naturalHeight;
@@ -615,6 +615,14 @@
       state.zoom = 1;
       redraw();
       if (cb) cb();
+    };
+    img.onerror = function(){
+      if (onError) onError();
+      else openConfirmModal(
+        "Bild konnte nicht geladen werden",
+        "„" + (name||"Die Datei") + "“ konnte vom Browser nicht als Bild angezeigt werden. Häufigste Ursache: ein iPhone-Foto im HEIC-Format – das kann kein Browser darstellen. Abhilfe: Foto als JPG/PNG exportieren (z. B. über „Teilen → Bild kopieren“ oder in den iPhone-Kameraeinstellungen unter „Formate“ auf „Kompatibel“/JPEG umstellen) und erneut hochladen.",
+        "OK", function(){}
+      );
     };
     img.src = dataURL;
   }
@@ -628,6 +636,9 @@
           state.scalePxPerM = null; state.cables = []; state.nextId = 1;
           updateScalePill(); renderTable(); autosave();
         });
+      };
+      reader.onerror = function(){
+        openConfirmModal("Datei konnte nicht gelesen werden", "„" + file.name + "“ konnte nicht gelesen werden. Bitte erneut versuchen.", "OK", function(){});
       };
       reader.readAsDataURL(file);
     };
