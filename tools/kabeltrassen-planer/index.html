@@ -261,7 +261,12 @@
     padding:1px 6px 2px; white-space:nowrap;
   }
   .bmk-tag svg{ width:10px; height:10px; flex:none; color:var(--accent); }
-  .bmk-tag-row{ margin-top:3px; }
+  .stecker-link{
+    border:none; background:none; padding:0; font:inherit; color:var(--accent);
+    text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;
+    cursor:pointer; font-weight:600;
+  }
+  .stecker-link:hover{ text-decoration-style:solid; }
   .cell-len{ font-family:"IBM Plex Mono"; white-space:nowrap; }
 
   .plan-popover{
@@ -559,6 +564,10 @@
       '<path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24L4 3a1 1 0 0 0-1 1l.24 5.59a2 2 0 0 0 .59 1.41l9.59 9.58a2 2 0 0 0 2.83 0l4.24-4.24a2 2 0 0 0 0-2.83z"/>' +
       '<circle cx="7.5" cy="7.5" r="1.4" fill="currentColor" stroke="none"/></svg>' + escapeHtml(text) + '</span>';
   }
+  // "Stecker: X" anklickbar machen - öffnet Anschlussplan/Montagebild.
+  function steckerLinkHtml(name){
+    return 'Stecker: <button type="button" class="stecker-link" data-mtype="connector" data-mkey="'+escapeHtml(name)+'">'+escapeHtml(name)+'</button>';
+  }
 
   var state = {
     img: null, imgW: 0, imgH: 0, imgDataURL: null, planFileName: "",
@@ -584,6 +593,9 @@
     // Nachschlagen: "wo liegt das, wie sieht der Aufkleber aus".
     cableLagerplatz: {}, cableSticker: {},
     connectorLagerplatz: {}, connectorSticker: {},
+    // Anschlussplan/Montagebild je Stecker: wie weit abisolieren, wie den
+    // Stecker zusammenbauen/anklemmen - eigenes Bild neben dem Sticker.
+    connectorWiring: {},
     // Admin-Sperre: nur ein Soft-Gate gegen versehentliches Ändern nach dem
     // Einrichten (Client-seitiges JS ist nie wirklich sicher vor jemandem,
     // der den Quelltext liest - das ersetzt keine echte Zugriffskontrolle).
@@ -1050,17 +1062,18 @@
       var bmk = m.end==="from" ? c.bmkFrom : c.bmkTo;
       var conn = m.end==="from" ? c.connectorFrom : c.connectorTo;
       var info = cableTypeInfo(c.cableType);
-      return '<button class="popover-item" data-id="'+c.id+'" type="button">' +
+      return '<div class="popover-item" data-id="'+c.id+'" role="button" tabindex="0">' +
         '<span class="dot" style="background:'+info.color+'"></span>' +
         '<span class="popover-item-text"><b>'+escapeHtml(label)+'</b>' +
           (bmk? ' ' + bmkTagHtml(bmk) : '') +
-          '<br><span class="popover-sub">'+info.label + (conn? ' · Stecker: '+escapeHtml(conn):'') + (c.wagen? ' · '+escapeHtml(c.wagen):'') + '</span>' +
-        '</span></button>';
+          '<br><span class="popover-sub">'+info.label + (conn? ' · '+steckerLinkHtml(conn):'') + (c.wagen? ' · '+escapeHtml(c.wagen):'') + '</span>' +
+        '</span></div>';
     }).join("");
     planPopover.innerHTML =
       '<div class="popover-head">' + (matches.length>1? matches.length+" Kabel hier":"Gefunden") +
       '<button class="popover-close" id="popClose" type="button" aria-label="Schließen">&times;</button></div>' + items;
     planPopover.hidden = false;
+    wireMaterialChips(planPopover);
 
     var wrapRect = canvasWrap.getBoundingClientRect();
     var left = evt.clientX - wrapRect.left + canvasWrap.scrollLeft + 10;
@@ -1074,10 +1087,14 @@
 
     byId("popClose").addEventListener("click", hidePlanPopover);
     planPopover.querySelectorAll("[data-id]").forEach(function(btn){
-      btn.addEventListener("click", function(){
+      btn.addEventListener("click", function(e){
+        if (e.target.closest("[data-mtype]")) return;
         var id = parseFloat(btn.getAttribute("data-id"));
         hidePlanPopover();
         jumpToTableRow(id);
+      });
+      btn.addEventListener("keydown", function(e){
+        if (e.key==="Enter" || e.key===" "){ e.preventDefault(); btn.click(); }
       });
     });
   }
@@ -1513,46 +1530,52 @@
   }
 
   function openGrundwerteModal(){
-    var pendingStickers = {}; // "mtype:key" -> dataURL | null(entfernt); fehlt = unveraendert
+    var pendingImages = {}; // "mtype:key:kind" -> dataURL | null(entfernt); fehlt = unveraendert
 
-    function stickerKey(mtype,key){ return mtype+":"+key; }
-    function currentSticker(mtype,key){
-      var k = stickerKey(mtype,key);
-      if (pendingStickers.hasOwnProperty(k)) return pendingStickers[k];
-      return (mtype==="cable"?state.cableSticker:state.connectorSticker)[key] || null;
+    function imgKey(mtype,key,kind){ return mtype+":"+key+":"+kind; }
+    function currentImage(mtype,key,kind){
+      var k = imgKey(mtype,key,kind);
+      if (pendingImages.hasOwnProperty(k)) return pendingImages[k];
+      var map = kind==="wiring" ? state.connectorWiring : (mtype==="cable" ? state.cableSticker : state.connectorSticker);
+      return map[key] || null;
     }
 
-    function materialRowHtml(mtype, key, label, color, weightVal, unit, lagerVal){
-      var sticker = currentSticker(mtype, key);
+    function imageRowHtml(mtype, key, kind, label){
+      var val = currentImage(mtype, key, kind);
+      return '<div class="sticker-row" data-mtype="'+mtype+'" data-mkey="'+escapeHtml(key)+'" data-kind="'+kind+'">' +
+        '<img class="sticker-thumb" src="'+(val||"")+'"'+(val?'':' hidden')+'>' +
+        '<label class="btn ghost sticker-btn">'+escapeHtml(label)+'<input type="file" accept="image/*" class="sticker-input"></label>' +
+        '<button class="icon-btn sticker-remove" type="button" title="Bild entfernen" aria-label="Bild entfernen"'+(val?'':' hidden')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+      '</div>';
+    }
+
+    function materialRowHtml(mtype, key, label, color, weightVal, unit, lagerVal, withWiring){
       return '<div class="material-row" data-mtype="'+mtype+'" data-mkey="'+escapeHtml(key)+'">' +
         '<div class="material-row-top">' + (color? '<span class="dot" style="background:'+color+'"></span>':'') + '<span class="lbl">'+escapeHtml(label)+'</span></div>' +
         '<div class="material-row-fields">' +
           '<div class="mini-field w-num"><label>'+unit+'</label><input type="number" min="0" step="'+(unit==="g/m"?"0.1":"1")+'" class="w-weight" value="'+(weightVal!=null?weightVal:"")+'" placeholder="0"></div>' +
           '<div class="mini-field w-lager"><label>Lagerplatz</label><input type="text" class="w-lager" value="'+escapeHtml(lagerVal||"")+'" placeholder="z. B. Regal 3, Fach B"></div>' +
         '</div>' +
-        '<div class="sticker-row">' +
-          '<img class="sticker-thumb" src="'+(sticker||"")+'"'+(sticker?'':' hidden')+'>' +
-          '<label class="btn ghost sticker-btn">Sticker-Foto<input type="file" accept="image/*" class="sticker-input"></label>' +
-          '<button class="icon-btn sticker-remove" type="button" title="Bild entfernen" aria-label="Bild entfernen"'+(sticker?'':' hidden')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
-        '</div>' +
+        imageRowHtml(mtype, key, "sticker", "Sticker-Foto") +
+        (withWiring ? imageRowHtml(mtype, key, "wiring", "Anschluss-/Montagebild") : '') +
       '</div>';
     }
 
     var cableRows = CABLE_TYPES.map(function(ct){
-      return materialRowHtml("cable", ct.id, ct.label, ct.color, state.cableWeightPerM[ct.id], "g/m", state.cableLagerplatz[ct.id]);
+      return materialRowHtml("cable", ct.id, ct.label, ct.color, state.cableWeightPerM[ct.id], "g/m", state.cableLagerplatz[ct.id], false);
     }).join("");
 
     var connectorNames = connectorSuggestions();
     var connectorRows = connectorNames.length
       ? connectorNames.map(function(name){
-          return materialRowHtml("connector", name, name, null, state.connectorWeight[name], "g", state.connectorLagerplatz[name]);
+          return materialRowHtml("connector", name, name, null, state.connectorWeight[name], "g", state.connectorLagerplatz[name], true);
         }).join("")
       : '<p style="margin:0;color:var(--ink-soft);font-size:13px;">Noch keine Steckertypen im Projekt eingetragen – erst bei einem Kabel eintragen, dann hier bewertbar.</p>';
 
     openModal(
       '<h3>Grundwerte</h3>' +
       '<div class="body">' +
-        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Gewicht (fürs Gesamtgewicht je Wagen), Lagerplatz und Sticker-Foto je Bauteil – nur zum Einrichten, danach über „Sperren“ schützbar.</p>' +
+        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Gewicht (fürs Gesamtgewicht je Wagen), Lagerplatz, Sticker-Foto und beim Stecker zusätzlich ein Anschluss-/Montagebild (Abisolierlänge, Zusammenbau) – nur zum Einrichten, danach über „Sperren“ schützbar.</p>' +
         '<div><div class="aufmass-label" style="padding:0 0 4px;">Kabel</div>' +
         '<div class="material-list">' + cableRows + '</div></div>' +
         '<div><div class="aufmass-label" style="padding:0 0 4px;">Stecker</div>' +
@@ -1564,8 +1587,8 @@
       '</div>'
     );
 
-    document.querySelectorAll("#modalHost .material-row").forEach(function(row){
-      var mtype = row.getAttribute("data-mtype"), key = row.getAttribute("data-mkey");
+    document.querySelectorAll("#modalHost .sticker-row").forEach(function(row){
+      var mtype = row.getAttribute("data-mtype"), key = row.getAttribute("data-mkey"), kind = row.getAttribute("data-kind");
       var fileInput = row.querySelector(".sticker-input");
       var thumb = row.querySelector(".sticker-thumb");
       var removeBtn = row.querySelector(".sticker-remove");
@@ -1573,15 +1596,15 @@
         var f = fileInput.files[0];
         fileInput.value = "";
         if (!f) return;
-        readImageResized(f, 320, function(dataUrl){
+        readImageResized(f, kind==="wiring" ? 900 : 320, function(dataUrl){
           if (!dataUrl) return;
-          pendingStickers[stickerKey(mtype,key)] = dataUrl;
+          pendingImages[imgKey(mtype,key,kind)] = dataUrl;
           thumb.src = dataUrl; thumb.hidden = false;
           removeBtn.hidden = false;
         });
       });
       removeBtn.addEventListener("click", function(){
-        pendingStickers[stickerKey(mtype,key)] = null;
+        pendingImages[imgKey(mtype,key,kind)] = null;
         thumb.src = ""; thumb.hidden = true;
         removeBtn.hidden = true;
       });
@@ -1594,13 +1617,15 @@
         var lagerVal = row.querySelector("input.w-lager").value.trim();
         var weightMap = mtype==="cable" ? state.cableWeightPerM : state.connectorWeight;
         var lagerMap = mtype==="cable" ? state.cableLagerplatz : state.connectorLagerplatz;
-        var stickerMap = mtype==="cable" ? state.cableSticker : state.connectorSticker;
         if (!isNaN(weightVal) && weightVal>0) weightMap[key]=weightVal; else delete weightMap[key];
         if (lagerVal) lagerMap[key]=lagerVal; else delete lagerMap[key];
-        var pk = stickerKey(mtype,key);
-        if (pendingStickers.hasOwnProperty(pk)){
-          if (pendingStickers[pk]) stickerMap[key]=pendingStickers[pk]; else delete stickerMap[key];
-        }
+      });
+      document.querySelectorAll("#modalHost .sticker-row").forEach(function(row){
+        var mtype = row.getAttribute("data-mtype"), key = row.getAttribute("data-mkey"), kind = row.getAttribute("data-kind");
+        var pk = imgKey(mtype,key,kind);
+        if (!pendingImages.hasOwnProperty(pk)) return;
+        var map = kind==="wiring" ? state.connectorWiring : (mtype==="cable" ? state.cableSticker : state.connectorSticker);
+        if (pendingImages[pk]) map[key]=pendingImages[pk]; else delete map[key];
       });
       closeModal();
       renderTable();
@@ -1610,8 +1635,9 @@
   }
   byId("btnGrundwerte").addEventListener("click", openGrundwerteModal);
 
-  // Material-Infofenster: Sticker-Foto + Lagerplatz + Gewicht zu einem
-  // Kabel-/Steckertyp, aufgerufen per Klick auf einen Typ-Chip.
+  // Material-Infofenster: Sticker-Foto + Lagerplatz + Gewicht (+ beim
+  // Stecker: Anschluss-/Montagebild) zu einem Kabel-/Steckertyp, aufgerufen
+  // per Klick auf einen Typ-Chip oder auf "Stecker: X" in der Kabelliste.
   function openMaterialInfoModal(mtype, key, label){
     var weightMap = mtype==="cable" ? state.cableWeightPerM : state.connectorWeight;
     var lagerMap = mtype==="cable" ? state.cableLagerplatz : state.connectorLagerplatz;
@@ -1619,12 +1645,18 @@
     var weight = weightMap[key];
     var lager = lagerMap[key];
     var sticker = stickerMap[key];
+    var wiring = mtype==="connector" ? state.connectorWiring[key] : null;
     openModal(
       '<h3>' + escapeHtml(label) + '</h3>' +
       '<div class="body">' +
+        (wiring
+          ? '<div><div class="aufmass-label" style="padding:0 0 4px;">Anschluss / Montage – abisolieren &amp; zusammenbauen</div>' +
+            '<img src="'+wiring+'" alt="Anschlussplan" style="width:100%;border-radius:8px;border:1px solid var(--line);display:block;"></div>'
+          : '') +
         (sticker
-          ? '<img src="'+sticker+'" alt="Sticker" style="width:100%;border-radius:8px;border:1px solid var(--line);display:block;">'
-          : '<div class="readout" style="color:var(--ink-soft);">Kein Sticker-Foto hinterlegt.</div>') +
+          ? '<div><div class="aufmass-label" style="padding:0 0 4px;">Sticker (Lager-Identifikation)</div>' +
+            '<img src="'+sticker+'" alt="Sticker" style="width:100%;border-radius:8px;border:1px solid var(--line);display:block;"></div>'
+          : (wiring ? '' : '<div class="readout" style="color:var(--ink-soft);">Kein Sticker-Foto hinterlegt.</div>')) +
         '<div class="readout">Lagerplatz: <b>' + (lager? escapeHtml(lager) : '– nicht hinterlegt') + '</b></div>' +
         '<div class="readout">Gewicht: <b>' + (weight!=null ? fmt(weight)+' '+(mtype==="cable"?"g/m":"g") : '– nicht hinterlegt') + '</b></div>' +
       '</div>' +
@@ -1638,9 +1670,11 @@
     if (editBtn) editBtn.addEventListener("click", function(){ closeModal(); openGrundwerteModal(); });
   }
   function wireMaterialChips(root){
-    root.querySelectorAll(".chip[data-mtype]").forEach(function(el){
-      el.addEventListener("click", function(){
-        openMaterialInfoModal(el.getAttribute("data-mtype"), el.getAttribute("data-mkey"), el.getAttribute("data-mlabel"));
+    root.querySelectorAll("[data-mtype][data-mkey]").forEach(function(el){
+      el.addEventListener("click", function(e){
+        e.stopPropagation();
+        var key = el.getAttribute("data-mkey");
+        openMaterialInfoModal(el.getAttribute("data-mtype"), key, el.getAttribute("data-mlabel") || key);
       });
     });
   }
@@ -1839,9 +1873,8 @@
     if (showExample){
       var info = cableTypeInfo(EXAMPLE_ROW.cableType);
       rows += '<tr class="example">' +
-        '<td>' + escapeHtml(EXAMPLE_ROW.fromLabel) + '<span class="example-badge">Beispiel</span>' +
-          '<div class="bmk-tag-row">' + bmkTagHtml(EXAMPLE_ROW.bmkFrom) + '</div></td>' +
-        '<td>' + escapeHtml(EXAMPLE_ROW.toLabel) + '<div class="bmk-tag-row">' + bmkTagHtml(EXAMPLE_ROW.bmkTo) + '</div></td>' +
+        '<td>' + escapeHtml(EXAMPLE_ROW.fromLabel) + ' ' + bmkTagHtml(EXAMPLE_ROW.bmkFrom) + '<span class="example-badge">Beispiel</span></td>' +
+        '<td>' + escapeHtml(EXAMPLE_ROW.toLabel) + ' ' + bmkTagHtml(EXAMPLE_ROW.bmkTo) + '</td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
         '<td class="cell-len">' + fmt(EXAMPLE_ROW.lengthReserve) + ' m<span class="r">' + fmt(EXAMPLE_ROW.lengthDirect) + ' m direkt</span></td>' +
         '<td>' + escapeHtml(EXAMPLE_ROW.note) + '</td>' +
@@ -1855,13 +1888,11 @@
       var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       rows += '<tr data-id="'+c.id+'" class="' + (c.id===state.hoverId?'hover-active':'') + '">' +
         '<td data-end="from"><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
-          '<div>' + escapeHtml(c.fromLabel) +
-            (c.bmkFrom? '<div class="bmk-tag-row">'+bmkTagHtml(c.bmkFrom)+'</div>':'') +
-            '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + (c.wagen? escapeHtml(c.wagen)+' · ':'') + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · Stecker: '+escapeHtml(c.connectorFrom):'') + '</div></div>' +
+          '<div>' + escapeHtml(c.fromLabel) + (c.bmkFrom? ' '+bmkTagHtml(c.bmkFrom):'') +
+            '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + (c.wagen? escapeHtml(c.wagen)+' · ':'') + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · '+steckerLinkHtml(c.connectorFrom):'') + '</div></div>' +
         '</div></td>' +
-        '<td data-end="to">' + escapeHtml(c.toLabel) +
-          (c.bmkTo? '<div class="bmk-tag-row">'+bmkTagHtml(c.bmkTo)+'</div>':'') +
-          (c.connectorTo? '<div class="r" style="color:var(--ink-soft);font-size:11px;">Stecker: '+escapeHtml(c.connectorTo)+'</div>':'') + '</td>' +
+        '<td data-end="to">' + escapeHtml(c.toLabel) + (c.bmkTo? ' '+bmkTagHtml(c.bmkTo):'') +
+          (c.connectorTo? '<div class="r" style="color:var(--ink-soft);font-size:11px;">'+steckerLinkHtml(c.connectorTo)+'</div>':'') + '</td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
         '<td class="cell-len">' + (geo.lengthReserve!=null? fmt(geo.lengthReserve)+' m' : '–') +
           (geo.lengthDirect!=null? '<span class="r">'+fmt(geo.lengthDirect)+' m direkt · +'+c.reservePct+'%</span>':'') + '</td>' +
@@ -1874,6 +1905,7 @@
     });
 
     tbody.innerHTML = rows;
+    wireMaterialChips(tbody);
     var emptyMsg = byId("emptyListMsg");
     if (!showExample && visible.length===0){
       emptyMsg.hidden = false;
@@ -1907,7 +1939,7 @@
       tr.addEventListener("mouseenter", function(){ state.hoverId = parseFloat(tr.getAttribute("data-id")); redraw(); tr.classList.add("hover-active"); });
       tr.addEventListener("mouseleave", function(){ state.hoverId = null; redraw(); tr.classList.remove("hover-active"); });
       tr.addEventListener("click", function(e){
-        if (e.target.closest(".row-actions")) return;
+        if (e.target.closest(".row-actions") || e.target.closest("[data-mtype]")) return;
         var id = parseFloat(tr.getAttribute("data-id"));
         var c = state.cables.find(function(x){return x.id===id;});
         if (!c) return;
@@ -2065,6 +2097,7 @@
       cableWeightPerM: state.cableWeightPerM, connectorWeight: state.connectorWeight,
       cableLagerplatz: state.cableLagerplatz, cableSticker: state.cableSticker,
       connectorLagerplatz: state.connectorLagerplatz, connectorSticker: state.connectorSticker,
+      connectorWiring: state.connectorWiring,
       locked: state.locked, adminPinHash: state.adminPinHash
     };
   }
@@ -2080,6 +2113,7 @@
     state.cableSticker = payload.cableSticker || {};
     state.connectorLagerplatz = payload.connectorLagerplatz || {};
     state.connectorSticker = payload.connectorSticker || {};
+    state.connectorWiring = payload.connectorWiring || {};
     state.locked = payload.locked || false;
     state.adminPinHash = payload.adminPinHash || null;
     updateScalePill();
