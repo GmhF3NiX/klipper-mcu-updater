@@ -222,6 +222,38 @@
     color:var(--accent); margin-top:2px;
   }
   .cell-len{ font-family:"IBM Plex Mono"; white-space:nowrap; }
+
+  .plan-popover{
+    position:absolute; width:260px; z-index:30; background:var(--surface);
+    border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow);
+    overflow:hidden;
+  }
+  .popover-head{
+    display:flex; align-items:center; justify-content:space-between; padding:8px 10px;
+    font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft);
+    font-weight:600; border-bottom:1px solid var(--line);
+  }
+  .popover-close{
+    border:none; background:transparent; color:var(--ink-soft); font-size:16px; line-height:1;
+    padding:0 2px; cursor:pointer;
+  }
+  .popover-close:hover{ color:var(--crit); }
+  .popover-item{
+    display:flex; align-items:flex-start; gap:8px; width:100%; text-align:left;
+    border:none; background:transparent; padding:9px 10px; cursor:pointer;
+    border-bottom:1px solid var(--line); color:var(--ink); font-size:12.5px;
+  }
+  .popover-item:last-child{ border-bottom:none; }
+  .popover-item:hover{ background:var(--accent-soft); }
+  .popover-item .dot{ width:8px; height:8px; border-radius:50%; flex:none; margin-top:4px; }
+  .popover-item-text{ min-width:0; }
+  .popover-sub{ color:var(--ink-soft); font-size:11px; }
+
+  @keyframes rowFlash{ 0%,100%{ background:var(--accent-soft); } 50%{ background:transparent; } }
+  tr.row-flash{ animation:rowFlash .4s ease-in-out 3; }
+  @media (prefers-reduced-motion: reduce){
+    tr.row-flash{ animation:none; background:var(--accent-soft); }
+  }
   .cell-len .r{ color:var(--ink-soft); font-size:11px; display:block; }
   .cell-type{ display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
   .cell-type .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
@@ -833,11 +865,11 @@
 
   canvas.addEventListener("click", function(evt){
     var p = pointerToImage(evt);
-    if (p.x<0||p.y<0||p.x>state.imgW||p.y>state.imgH) return;
-    handleCanvasClick(p);
+    if (p.x<0||p.y<0||p.x>state.imgW||p.y>state.imgH) { hidePlanPopover(); return; }
+    handleCanvasClick(p, evt);
   });
 
-  function handleCanvasClick(p){
+  function handleCanvasClick(p, evt){
     if (state.mode==="calib1"){
       state.pending = p;
       state.mode = "calib2";
@@ -869,6 +901,88 @@
       redraw();
       return;
     }
+    // Idle: "was ist das hier?" - Klick auf einen bestehenden Kabelpunkt
+    // zeigt, welches Gerät dort sitzt, mit Sprung zur Kabelliste.
+    var matches = findCablesNearPoint(p, 14);
+    if (matches.length) showPlanPopover(matches, evt);
+    else hidePlanPopover();
+  }
+
+  // ---------- Plan-Popover: Klick auf einen Punkt -> welches Kabel/Gerät ----------
+  function findCablesNearPoint(imgPt, toleranceCssPx){
+    var rs = renderScale();
+    var tolImg = toleranceCssPx / rs;
+    var matches = [];
+    getVisibleCables().forEach(function(c){
+      var dFrom = dist(imgPt, {x:c.x1,y:c.y1});
+      var dTo = dist(imgPt, {x:c.x2,y:c.y2});
+      if (dFrom <= tolImg) matches.push({cable:c, end:"from", d:dFrom});
+      if (dTo <= tolImg) matches.push({cable:c, end:"to", d:dTo});
+    });
+    matches.sort(function(a,b){ return a.d - b.d; });
+    return matches;
+  }
+
+  var planPopover = document.createElement("div");
+  planPopover.id = "planPopover";
+  planPopover.className = "plan-popover";
+  planPopover.hidden = true;
+  canvasWrap.appendChild(planPopover);
+
+  function hidePlanPopover(){ planPopover.hidden = true; }
+
+  function showPlanPopover(matches, evt){
+    var items = matches.map(function(m){
+      var c = m.cable;
+      var label = m.end==="from" ? c.fromLabel : c.toLabel;
+      var bmk = m.end==="from" ? c.bmkFrom : c.bmkTo;
+      var conn = m.end==="from" ? c.connectorFrom : c.connectorTo;
+      var info = cableTypeInfo(c.cableType);
+      return '<button class="popover-item" data-id="'+c.id+'" type="button">' +
+        '<span class="dot" style="background:'+info.color+'"></span>' +
+        '<span class="popover-item-text"><b>'+escapeHtml(label)+'</b>' +
+          (bmk? ' <span class="bmk-tag" style="margin:0;">'+escapeHtml(bmk)+'</span>' : '') +
+          '<br><span class="popover-sub">'+info.label + (conn? ' · Stecker: '+escapeHtml(conn):'') + (c.wagen? ' · '+escapeHtml(c.wagen):'') + '</span>' +
+        '</span></button>';
+    }).join("");
+    planPopover.innerHTML =
+      '<div class="popover-head">' + (matches.length>1? matches.length+" Kabel hier":"Gefunden") +
+      '<button class="popover-close" id="popClose" type="button" aria-label="Schließen">&times;</button></div>' + items;
+    planPopover.hidden = false;
+
+    var wrapRect = canvasWrap.getBoundingClientRect();
+    var left = evt.clientX - wrapRect.left + canvasWrap.scrollLeft + 10;
+    var top = evt.clientY - wrapRect.top + canvasWrap.scrollTop + 10;
+    var maxLeft = canvasWrap.scrollLeft + canvasWrap.clientWidth - 270;
+    var maxTop = canvasWrap.scrollTop + canvasWrap.clientHeight - 20;
+    left = Math.min(left, Math.max(canvasWrap.scrollLeft+8, maxLeft));
+    top = Math.min(top, Math.max(canvasWrap.scrollTop+8, maxTop));
+    planPopover.style.left = left + "px";
+    planPopover.style.top = top + "px";
+
+    byId("popClose").addEventListener("click", hidePlanPopover);
+    planPopover.querySelectorAll("[data-id]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var id = parseFloat(btn.getAttribute("data-id"));
+        hidePlanPopover();
+        jumpToTableRow(id);
+      });
+    });
+  }
+
+  function jumpToTableRow(id){
+    var c = state.cables.find(function(x){ return x.id===id; });
+    if (c && !cableMatchesFilter(c)){
+      state.wagenFilter = "";
+      renderTable();
+    }
+    var tr = document.querySelector('tbody#cableTableBody tr[data-id="'+id+'"]');
+    if (!tr) return;
+    var listPanel = byId("listPanel");
+    if (listPanel && listPanel.scrollIntoView) listPanel.scrollIntoView({behavior:"smooth", block:"start"});
+    tr.scrollIntoView({behavior:"smooth", block:"center"});
+    tr.classList.add("row-flash");
+    setTimeout(function(){ tr.classList.remove("row-flash"); }, 1300);
   }
 
   function updateModeHint(){
@@ -894,6 +1008,7 @@
   function cancelMode(){
     state.mode="idle"; state.pending=null; state.editingId=null; state.trassePoints=[];
     updateModeHint();
+    hidePlanPopover();
     redraw();
   }
 
@@ -982,7 +1097,7 @@
   });
 
   // ---------- zoom ----------
-  function setZoom(z){ state.zoom = Math.min(6, Math.max(0.25, z)); byId("zoomReadout").textContent = Math.round(state.zoom*100)+"%"; redraw(); }
+  function setZoom(z){ state.zoom = Math.min(6, Math.max(0.25, z)); byId("zoomReadout").textContent = Math.round(state.zoom*100)+"%"; hidePlanPopover(); redraw(); }
   byId("btnZoomIn").addEventListener("click", function(){ setZoom(state.zoom*1.25); });
   byId("btnZoomOut").addEventListener("click", function(){ setZoom(state.zoom/1.25); });
   window.addEventListener("resize", function(){ redraw(); });
@@ -1036,15 +1151,15 @@
 
   byId("btnCalibrate").addEventListener("click", function(){
     if (!state.img){ handlePlanFile(); byId("fileInputPlan").click(); return; }
-    state.mode="calib1"; state.pending=null; updateModeHint(); redraw();
+    state.mode="calib1"; state.pending=null; updateModeHint(); hidePlanPopover(); redraw();
   });
   byId("btnNewCable").addEventListener("click", function(){
     if (!state.img){ byId("fileInputPlan").click(); return; }
-    state.editingId=null; state.mode="cable1"; state.pending=null; updateModeHint(); redraw();
+    state.editingId=null; state.mode="cable1"; state.pending=null; updateModeHint(); hidePlanPopover(); redraw();
   });
   byId("btnNewTrasse").addEventListener("click", function(){
     if (!state.img){ byId("fileInputPlan").click(); return; }
-    state.mode="trasse-draw"; state.trassePoints=[]; updateModeHint(); redraw();
+    state.mode="trasse-draw"; state.trassePoints=[]; updateModeHint(); hidePlanPopover(); redraw();
   });
 
   // ---------- modal machinery ----------
