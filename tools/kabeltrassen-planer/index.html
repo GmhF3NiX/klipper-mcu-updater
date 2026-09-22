@@ -202,6 +202,10 @@
     font-family:"IBM Plex Mono"; font-size:11px; color:var(--surface); background:var(--ink-soft);
     border-radius:5px; padding:1px 5px; flex:none;
   }
+  .bmk-tag{
+    display:inline-block; font-family:"IBM Plex Mono"; font-weight:600; font-size:11px;
+    color:var(--accent); margin-top:2px;
+  }
   .cell-len{ font-family:"IBM Plex Mono"; white-space:nowrap; }
   .cell-len .r{ color:var(--ink-soft); font-size:11px; display:block; }
   .cell-type{ display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
@@ -350,7 +354,6 @@
         <table>
           <thead>
             <tr>
-              <th>BMK</th>
               <th>Von / Ger&auml;t</th>
               <th>Nach / Ziel</th>
               <th>Kabeltyp</th>
@@ -1079,6 +1082,7 @@
     var pt1 = p1 || {x:e.x1, y:e.y1};
     var pt2 = p2 || {x:e.x2, y:e.y2};
     var reserve = e.reservePct != null ? e.reservePct : DEFAULT_RESERVE_PCT;
+    var bmkDefaults = existing ? {from:"", to:""} : nextBmkSuggestion();
 
     function readoutHtml(){
       var trasseVal = byId("cfTrasse") ? byId("cfTrasse").value : (e.trasseId||"");
@@ -1096,8 +1100,6 @@
       '<h3>' + (existing ? "Kabel bearbeiten" : "Neues Kabel") + '</h3>' +
       '<div class="body">' +
         '<div id="cfReadoutWrap">' + readoutHtml() + '</div>' +
-        '<div class="field"><label for="cfBmk">BMK / Kabel-Nr. (auf Markern an beiden Enden)</label>' +
-        '<input type="text" id="cfBmk" value="'+escapeHtml(existing ? (e.bmk||"") : nextBmkSuggestion())+'" placeholder="z. B. K001"></div>' +
         '<div class="field-row">' +
           '<div class="field"><label for="cfDevice">Gerätetyp</label>' +
           '<select id="cfDevice">' + deviceOptionsHtml(e.deviceType||"afz") + '</select></div>' +
@@ -1106,12 +1108,20 @@
         '</div>' +
         '<div class="field"><label for="cfFrom">Von / Position (z. B. Wagen 3, Abteil 2, Deckenauslass)</label>' +
         '<input type="text" id="cfFrom" value="'+escapeHtml(e.fromLabel||"")+'" placeholder="Position des Geräts" autofocus></div>' +
-        '<div class="field"><label for="cfConnFrom">Stecker an diesem Ende (optional)</label>' +
-        '<input type="text" id="cfConnFrom" list="connectorList" value="'+escapeHtml(e.connectorFrom||"")+'" placeholder="z. B. 4-pol Stecker"></div>' +
+        '<div class="field-row">' +
+          '<div class="field"><label for="cfBmkFrom">BMK an diesem Ende</label>' +
+          '<input type="text" id="cfBmkFrom" value="'+escapeHtml(existing ? (e.bmkFrom||"") : bmkDefaults.from)+'" placeholder="z. B. K001-A"></div>' +
+          '<div class="field"><label for="cfConnFrom">Stecker an diesem Ende</label>' +
+          '<input type="text" id="cfConnFrom" list="connectorList" value="'+escapeHtml(e.connectorFrom||"")+'" placeholder="z. B. 4-pol Stecker"></div>' +
+        '</div>' +
         '<div class="field"><label for="cfTo">Nach / Ziel (z. B. Schaltschrank Wagen 3)</label>' +
         '<input type="text" id="cfTo" value="'+escapeHtml(e.toLabel||"")+'" placeholder="Zielpunkt / Verteiler"></div>' +
-        '<div class="field"><label for="cfConnTo">Stecker an diesem Ende (optional)</label>' +
-        '<input type="text" id="cfConnTo" list="connectorList" value="'+escapeHtml(e.connectorTo||"")+'" placeholder="z. B. 8-pol Stecker"></div>' +
+        '<div class="field-row">' +
+          '<div class="field"><label for="cfBmkTo">BMK an diesem Ende</label>' +
+          '<input type="text" id="cfBmkTo" value="'+escapeHtml(existing ? (e.bmkTo||"") : bmkDefaults.to)+'" placeholder="z. B. K001-E"></div>' +
+          '<div class="field"><label for="cfConnTo">Stecker an diesem Ende</label>' +
+          '<input type="text" id="cfConnTo" list="connectorList" value="'+escapeHtml(e.connectorTo||"")+'" placeholder="z. B. 8-pol Stecker"></div>' +
+        '</div>' +
         connectorDatalistHtml() +
         '<div class="field"><label for="cfCableType">Kabeltyp</label>' +
         '<select id="cfCableType">' + cableOptionsHtml(e.cableType||"cat7") + '</select></div>' +
@@ -1131,7 +1141,8 @@
     byId("cfReserve").addEventListener("input", refreshReadout);
 
     function submit(){
-      var bmk = byId("cfBmk").value.trim();
+      var bmkFrom = byId("cfBmkFrom").value.trim();
+      var bmkTo = byId("cfBmkTo").value.trim();
       var deviceType = byId("cfDevice").value;
       var reservePct = parseFloat(byId("cfReserve").value) || 0;
       var fromLabel = byId("cfFrom").value.trim();
@@ -1146,12 +1157,12 @@
       if (!toLabel) toLabel = "Ziel unbenannt";
 
       if (existing){
-        existing.bmk=bmk; existing.deviceType=deviceType; existing.reservePct=reservePct; existing.fromLabel=fromLabel;
+        existing.bmkFrom=bmkFrom; existing.bmkTo=bmkTo; existing.deviceType=deviceType; existing.reservePct=reservePct; existing.fromLabel=fromLabel;
         existing.toLabel=toLabel; existing.cableType=cableType; existing.note=note; existing.trasseId=trasseId;
         existing.connectorFrom=connectorFrom; existing.connectorTo=connectorTo;
       } else {
         state.cables.push({
-          id: state.nextId++, bmk: bmk,
+          id: state.nextId++, bmkFrom: bmkFrom, bmkTo: bmkTo,
           deviceType: deviceType, fromLabel: fromLabel, toLabel: toLabel,
           cableType: cableType, reservePct: reservePct, note: note, trasseId: trasseId,
           connectorFrom: connectorFrom, connectorTo: connectorTo,
@@ -1170,16 +1181,23 @@
 
   // ---------- table / summary ----------
   var EXAMPLE_ROW = {
-    bmk:"K001", fromLabel:"AFZ Wagen 3, Deckenauslass", toLabel:"Schaltschrank Wagen 3",
+    bmkFrom:"K001-A", bmkTo:"K001-E", fromLabel:"AFZ Wagen 3, Deckenauslass", toLabel:"Schaltschrank Wagen 3",
     cableType:"cat7", lengthDirect:8.4, lengthReserve:9.7, note:"Beispielzeile"
   };
 
+  // Anfang und Ende eines Kabels tragen meist unterschiedliche BMK (je nach
+  // Ort/Betriebsmittel an diesem Ende) - die Nummer ist nur ein Vorschlag
+  // zum Überschreiben, kein erzwungenes gemeinsames Kennzeichen.
   function nextBmkSuggestion(){
     var n = state.cables.length;
     var used = {};
-    state.cables.forEach(function(c){ if (c.bmk) used[c.bmk]=true; });
-    do { n++; } while (used["K"+String(n).padStart(3,"0")]);
-    return "K" + String(n).padStart(3,"0");
+    state.cables.forEach(function(c){
+      if (c.bmkFrom) used[c.bmkFrom]=true;
+      if (c.bmkTo) used[c.bmkTo]=true;
+    });
+    do { n++; } while (used["K"+String(n).padStart(3,"0")+"-A"] || used["K"+String(n).padStart(3,"0")+"-E"]);
+    var base = "K" + String(n).padStart(3,"0");
+    return {from: base+"-A", to: base+"-E"};
   }
 
   function renderTable(){
@@ -1190,9 +1208,9 @@
     if (showExample){
       var info = cableTypeInfo(EXAMPLE_ROW.cableType);
       rows += '<tr class="example">' +
-        '<td class="mono">' + escapeHtml(EXAMPLE_ROW.bmk) + '</td>' +
-        '<td>' + escapeHtml(EXAMPLE_ROW.fromLabel) + '<span class="example-badge">Beispiel</span></td>' +
-        '<td>' + escapeHtml(EXAMPLE_ROW.toLabel) + '</td>' +
+        '<td>' + escapeHtml(EXAMPLE_ROW.fromLabel) + '<span class="example-badge">Beispiel</span>' +
+          '<div class="bmk-tag">' + escapeHtml(EXAMPLE_ROW.bmkFrom) + '</div></td>' +
+        '<td>' + escapeHtml(EXAMPLE_ROW.toLabel) + '<div class="bmk-tag">' + escapeHtml(EXAMPLE_ROW.bmkTo) + '</div></td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
         '<td class="cell-len">' + fmt(EXAMPLE_ROW.lengthReserve) + ' m<span class="r">' + fmt(EXAMPLE_ROW.lengthDirect) + ' m direkt</span></td>' +
         '<td>' + escapeHtml(EXAMPLE_ROW.note) + '</td>' +
@@ -1205,11 +1223,14 @@
       var geo = computeCableGeometry(c);
       var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       rows += '<tr data-id="'+c.id+'" class="' + (c.id===state.hoverId?'hover-active':'') + '">' +
-        '<td class="mono">' + escapeHtml(c.bmk||"") + '</td>' +
         '<td><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
-          '<div>' + escapeHtml(c.fromLabel) + '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · Stecker: '+escapeHtml(c.connectorFrom):'') + '</div></div>' +
+          '<div>' + escapeHtml(c.fromLabel) +
+            (c.bmkFrom? '<div class="bmk-tag">'+escapeHtml(c.bmkFrom)+'</div>':'') +
+            '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · Stecker: '+escapeHtml(c.connectorFrom):'') + '</div></div>' +
         '</div></td>' +
-        '<td>' + escapeHtml(c.toLabel) + (c.connectorTo? '<div class="r" style="color:var(--ink-soft);font-size:11px;">Stecker: '+escapeHtml(c.connectorTo)+'</div>':'') + '</td>' +
+        '<td>' + escapeHtml(c.toLabel) +
+          (c.bmkTo? '<div class="bmk-tag">'+escapeHtml(c.bmkTo)+'</div>':'') +
+          (c.connectorTo? '<div class="r" style="color:var(--ink-soft);font-size:11px;">Stecker: '+escapeHtml(c.connectorTo)+'</div>':'') + '</td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
         '<td class="cell-len">' + (geo.lengthReserve!=null? fmt(geo.lengthReserve)+' m' : '–') +
           (geo.lengthDirect!=null? '<span class="r">'+fmt(geo.lengthDirect)+' m direkt · +'+c.reservePct+'%</span>':'') + '</td>' +
@@ -1319,13 +1340,13 @@
   }
 
   byId("btnExportCSV").addEventListener("click", function(){
-    var lines = [["Nr","BMK","Von / Gerät","Gerätetyp","Stecker Von","Nach / Ziel","Stecker Nach","Kabeltyp","Trasse","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Bemerkung"].join(";")];
+    var lines = [["Nr","Von / Gerät","BMK Von","Gerätetyp","Stecker Von","Nach / Ziel","BMK Nach","Stecker Nach","Kabeltyp","Trasse","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Bemerkung"].join(";")];
     state.cables.forEach(function(c, idx){
       var geo = computeCableGeometry(c);
       var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       lines.push([
-        idx+1, csvEscape(c.bmk||""), csvEscape(c.fromLabel), csvEscape(deviceTypeLabel(c.deviceType)), csvEscape(c.connectorFrom||""),
-        csvEscape(c.toLabel), csvEscape(c.connectorTo||""),
+        idx+1, csvEscape(c.fromLabel), csvEscape(c.bmkFrom||""), csvEscape(deviceTypeLabel(c.deviceType)), csvEscape(c.connectorFrom||""),
+        csvEscape(c.toLabel), csvEscape(c.bmkTo||""), csvEscape(c.connectorTo||""),
         csvEscape(cableTypeInfo(c.cableType).label), csvEscape(trasse?trasse.name:""),
         geo.lengthDirect!=null?fmt(geo.lengthDirect):"", geo.lengthReserve!=null?fmt(geo.lengthReserve):"",
         c.reservePct, csvEscape(c.note||"")
