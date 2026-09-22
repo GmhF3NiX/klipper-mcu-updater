@@ -197,6 +197,7 @@
   tbody tr.example{ opacity:.55; font-style:italic; }
   tbody tr:hover{ background:var(--surface-2); }
   tbody tr.hover-active{ background:var(--accent-soft); }
+  tbody tr[data-id]{ cursor:pointer; }
   .cell-device{ display:flex; align-items:center; gap:6px; }
   .cell-device .nr{
     font-family:"IBM Plex Mono"; font-size:11px; color:var(--surface); background:var(--ink-soft);
@@ -459,7 +460,8 @@
     trassePoints: [],
     hoverId: null,
     nextId: 1,
-    nextTrasseId: 1
+    nextTrasseId: 1,
+    blinkId: null, blinkStart: 0, blinkRAF: null
   };
 
   // ---------- geometry helpers (also used for routing cables through a Trasse) ----------
@@ -715,6 +717,20 @@
     ctx.textBaseline = "middle";
     ctx.fillText(String(nr), mx, my+0.5/rs);
     ctx.restore();
+
+    if (c.id === state.blinkId){
+      var elapsed = performance.now() - state.blinkStart;
+      var pulse = (Math.sin(elapsed/180) + 1) / 2; // 0..1
+      var bp = path[0];
+      ctx.save();
+      ctx.strokeStyle = "#C1571F";
+      ctx.globalAlpha = 0.35 + 0.5*pulse;
+      ctx.lineWidth = 2.5/rs;
+      ctx.beginPath();
+      ctx.arc(bp.x, bp.y, (9 + 10*pulse)/rs, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   var lastPointerImg = {x:0,y:0};
@@ -889,6 +905,39 @@
   byId("btnZoomIn").addEventListener("click", function(){ setZoom(state.zoom*1.25); });
   byId("btnZoomOut").addEventListener("click", function(){ setZoom(state.zoom/1.25); });
   window.addEventListener("resize", function(){ redraw(); });
+
+  // ---------- "wo ist das?" - Kabel in der Liste anklicken springt zur
+  // Geräteposition im Plan, zoomt näher heran und lässt den Punkt blinken.
+  function startBlink(id){
+    state.blinkId = id;
+    state.blinkStart = performance.now();
+    if (state.blinkRAF) cancelAnimationFrame(state.blinkRAF);
+    (function tick(){
+      redraw();
+      if (performance.now() - state.blinkStart < 1800){
+        state.blinkRAF = requestAnimationFrame(tick);
+      } else {
+        state.blinkId = null; state.blinkRAF = null;
+        redraw();
+      }
+    })();
+  }
+
+  function locateCableOnPlan(c){
+    if (!state.img) return;
+    var canvasPanel = byId("canvasPanel");
+    if (canvasPanel && canvasPanel.scrollIntoView) canvasPanel.scrollIntoView({behavior:"smooth", block:"start"});
+    if (state.zoom < 1.6) setZoom(1.8); else redraw();
+    var rs = renderScale();
+    var targetX = c.x1 * rs, targetY = c.y1 * rs;
+    var wrapW = canvasWrap.clientWidth, wrapH = canvasWrap.clientHeight;
+    canvasWrap.scrollTo({
+      left: Math.max(0, targetX - wrapW/2),
+      top: Math.max(0, targetY - wrapH/2),
+      behavior: "smooth"
+    });
+    startBlink(c.id);
+  }
 
   // ---------- scale pill ----------
   function updateScalePill(){
@@ -1289,8 +1338,15 @@
       });
     });
     tbody.querySelectorAll("tr[data-id]").forEach(function(tr){
+      tr.title = "Anklicken, um die Position im Plan zu zeigen";
       tr.addEventListener("mouseenter", function(){ state.hoverId = parseFloat(tr.getAttribute("data-id")); redraw(); tr.classList.add("hover-active"); });
       tr.addEventListener("mouseleave", function(){ state.hoverId = null; redraw(); tr.classList.remove("hover-active"); });
+      tr.addEventListener("click", function(e){
+        if (e.target.closest(".row-actions")) return;
+        var id = parseFloat(tr.getAttribute("data-id"));
+        var c = state.cables.find(function(x){return x.id===id;});
+        if (c) locateCableOnPlan(c);
+      });
     });
 
     updateSummary();
