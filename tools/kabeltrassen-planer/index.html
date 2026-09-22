@@ -429,9 +429,14 @@
 
   function fitBaseScale(){
     if (!state.imgW) return 1;
-    var wrapW = canvasWrap.clientWidth || 800;
-    var target = Math.min(wrapW - 4, 1400);
-    return Math.max(target / state.imgW, 0.02);
+    var wrapW = Math.min(canvasWrap.clientWidth || 800, 1400) - 4;
+    var wrapH = (canvasWrap.clientHeight || 560) - 4;
+    var byWidth = wrapW / state.imgW;
+    var byHeight = wrapH / state.imgH;
+    // Fit the whole plan into view on first load (like a wide, flat train
+    // diagram) instead of always fitting width, which would render a very
+    // wide/short plan too small to click precisely.
+    return Math.max(Math.min(byWidth, byHeight), 0.02);
   }
   function renderScale(){ return fitBaseScale() * state.zoom; }
 
