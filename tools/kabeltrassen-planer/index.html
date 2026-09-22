@@ -161,6 +161,11 @@
     background:var(--surface-2); border:1px solid var(--line); font-size:12px; color:var(--ink-soft);
   }
   .scale-pill.set{ color:var(--good); border-color:var(--good); }
+  .wagen-filter{
+    border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
+    border-radius:999px; padding:4px 10px; font-size:12px; font-weight:600;
+  }
+  .wagen-filter.active{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
   .scale-pill .mono{ color:inherit; }
 
   .stats{
@@ -335,7 +340,12 @@
     <section class="panel" id="listPanel">
       <div class="panel-head">
         <h2>Kabelliste</h2>
-        <span class="hint" id="cableCountHint">0 Kabel</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="hint" id="cableCountHint">0 Kabel</span>
+          <select id="wagenFilter" class="wagen-filter" aria-label="Nach Wagen filtern">
+            <option value="">Alle Wagen</option>
+          </select>
+        </div>
       </div>
 
       <div class="stats">
@@ -478,6 +488,7 @@
     nextId: 1,
     nextTrasseId: 1,
     blinkId: null, blinkEnd: "from", blinkStart: 0, blinkRAF: null,
+    wagenFilter: "", // "" = alle, "__none__" = ohne Wagen, sonst der Wagen-Name
     // Grundwerte fürs Gesamtgewicht (Zulassungsunterlagen): Gramm je Meter
     // Kabel (nach Kabeltyp) und Gramm je Stecker (nach Steckerbezeichnung).
     // Alles 0 bis der Nutzer eigene Werte einträgt – wir erfinden keine
@@ -555,6 +566,41 @@
     return w;
   }
 
+  // Kabel passend zum aktuellen Wagen-Filter - für Arbeiten Wagen für
+  // Wagen: blendet Liste und Plan auf den gerade bearbeiteten Wagen ein.
+  function getVisibleCables(){
+    if (!state.wagenFilter) return state.cables;
+    if (state.wagenFilter === "__none__") return state.cables.filter(function(c){ return !c.wagen; });
+    return state.cables.filter(function(c){ return c.wagen === state.wagenFilter; });
+  }
+  function cableMatchesFilter(c){
+    if (!state.wagenFilter) return true;
+    if (state.wagenFilter === "__none__") return !c.wagen;
+    return c.wagen === state.wagenFilter;
+  }
+  function updateWagenFilterOptions(){
+    var sel = byId("wagenFilter");
+    var used = {};
+    state.cables.forEach(function(c){ if (c.wagen) used[c.wagen]=true; });
+    var names = Object.keys(used).sort(function(a,b){ return a.localeCompare(b,"de",{numeric:true}); });
+    var hasNone = state.cables.some(function(c){ return !c.wagen; });
+    var prev = state.wagenFilter;
+    var html = '<option value="">Alle Wagen</option>';
+    names.forEach(function(n){ html += '<option value="'+escapeHtml(n)+'">'+escapeHtml(n)+'</option>'; });
+    if (hasNone) html += '<option value="__none__">Ohne Wagen</option>';
+    sel.innerHTML = html;
+    var stillValid = !prev || names.indexOf(prev)>=0 || (prev==="__none__" && hasNone);
+    if (!stillValid) state.wagenFilter = "";
+    sel.value = state.wagenFilter;
+    sel.classList.toggle("active", !!state.wagenFilter);
+  }
+  byId("wagenFilter").addEventListener("change", function(){
+    state.wagenFilter = this.value;
+    this.classList.toggle("active", !!state.wagenFilter);
+    renderTable();
+    redraw();
+  });
+
   // ---------- persistence (best effort, per-viewer convenience only) ----------
   function autosave(){
     try{
@@ -630,8 +676,8 @@
       drawTrasseInProgress();
     }
 
-    // cables
-    state.cables.forEach(function(c, idx){
+    // cables (nur die zum aktuellen Wagen-Filter passenden, wie in der Liste)
+    getVisibleCables().forEach(function(c, idx){
       drawCable(c, idx+1, c.id === state.hoverId);
     });
 
@@ -1376,6 +1422,8 @@
 
   function renderTable(){
     var tbody = byId("cableTableBody");
+    updateWagenFilterOptions();
+    var visible = getVisibleCables();
     var rows = "";
     var showExample = state.cables.length===0;
 
@@ -1392,7 +1440,7 @@
       '</tr>';
     }
 
-    state.cables.forEach(function(c, idx){
+    visible.forEach(function(c, idx){
       var info = cableTypeInfo(c.cableType);
       var geo = computeCableGeometry(c);
       var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
@@ -1417,8 +1465,16 @@
     });
 
     tbody.innerHTML = rows;
-    byId("emptyListMsg").hidden = true;
-    byId("cableCountHint").textContent = state.cables.length + (state.cables.length===1 ? " Kabel" : " Kabel");
+    var emptyMsg = byId("emptyListMsg");
+    if (!showExample && visible.length===0){
+      emptyMsg.hidden = false;
+      emptyMsg.textContent = "Keine Kabel für „" + (state.wagenFilter==="__none__" ? "ohne Wagen" : state.wagenFilter) + "“.";
+    } else {
+      emptyMsg.hidden = true;
+    }
+    byId("cableCountHint").textContent = state.wagenFilter
+      ? visible.length + " von " + state.cables.length + " Kabeln"
+      : state.cables.length + (state.cables.length===1 ? " Kabel" : " Kabel");
 
     tbody.querySelectorAll('[data-act="del"]').forEach(function(btn){
       btn.addEventListener("click", function(){
@@ -1456,11 +1512,12 @@
   }
 
   function updateSummary(){
-    var count = state.cables.length;
+    var visible = getVisibleCables();
+    var count = visible.length;
     var totalDirect = 0, totalReserve = 0, anyLen=false;
     var byType = {};
     var byConnector = {};
-    state.cables.forEach(function(c){
+    visible.forEach(function(c){
       var geo = computeCableGeometry(c);
       if (geo.lengthReserve!=null){ totalDirect += geo.lengthDirect; totalReserve += geo.lengthReserve; anyLen=true; }
       byType[c.cableType] = (byType[c.cableType]||0) + (geo.lengthReserve||0);
