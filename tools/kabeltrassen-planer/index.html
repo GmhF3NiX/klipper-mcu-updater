@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kabeltrassen-Planer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#F2EFE7; --surface:#FFFFFF; --surface-2:#E7E2D3; --line:#D6CFBA;
+    --ink:#20242B; --ink-soft:#5B6470; --ink-faint:#8A8F79;
+    --accent:#C1571F; --accent-ink:#FFF6EE; --accent-soft:#F1DFCB;
+    --good:#2E7D4F; --warn:#A6790E; --crit:#B23B2E;
+    --focus:#2F6FD6;
+    --shadow: 0 1px 2px rgba(30,24,10,.06), 0 6px 18px rgba(30,24,10,.08);
+    --radius: 10px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#14181D; --surface:#1B2027; --surface-2:#232A32; --line:#323B45;
+      --ink:#E7E4DC; --ink-soft:#97A0AA; --ink-faint:#6C7580;
+      --accent:#E2823D; --accent-ink:#1B120A; --accent-soft:#3A2A18;
+      --good:#4FAE78; --warn:#D1A73D; --crit:#E06B57;
+      --focus:#6FA0F0;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14181D; --surface:#1B2027; --surface-2:#232A32; --line:#323B45;
+    --ink:#E7E4DC; --ink-soft:#97A0AA; --ink-faint:#6C7580;
+    --accent:#E2823D; --accent-ink:#1B120A; --accent-soft:#3A2A18;
+    --good:#4FAE78; --warn:#D1A73D; --crit:#E06B57;
+    --focus:#6FA0F0;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size:14px; line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.display{
+    font-family:"Barlow Condensed", ui-sans-serif, system-ui, sans-serif;
+    font-weight:700; letter-spacing:.01em; text-wrap:balance;
+  }
+  .mono{ font-family:"IBM Plex Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums; }
+  button, input, select, textarea{ font-family:inherit; font-size:inherit; color:inherit; }
+  button{ cursor:pointer; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible{
+    outline:2px solid var(--focus); outline-offset:2px;
+  }
+  [hidden]{ display:none !important; }
+
+  #app{ min-height:100%; padding-block:0 24px; }
+
+  header.topbar{
+    position:sticky; top:0; z-index:20;
+    background:var(--surface); border-bottom:1px solid var(--line);
+    box-shadow:var(--shadow);
+    padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top, 0px));
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  }
+  .brand{ display:flex; align-items:baseline; gap:8px; margin-right:auto; }
+  .brand h1{ font-size:22px; margin:0; color:var(--ink); }
+  .brand .sub{ color:var(--ink-soft); font-size:12px; }
+  .brand .mark{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:26px;height:26px;border-radius:7px; background:var(--accent); color:var(--accent-ink);
+    font-family:"Barlow Condensed"; font-weight:700; font-size:15px;
+  }
+  .toolbar{ display:flex; gap:8px; flex-wrap:wrap; }
+  .btn{
+    display:inline-flex; align-items:center; gap:6px;
+    border:1px solid var(--line); background:var(--surface);
+    color:var(--ink); padding:8px 12px; border-radius:8px; font-weight:600;
+    transition:background .12s, border-color .12s, transform .06s;
+  }
+  .btn:hover{ border-color:var(--ink-faint); }
+  .btn:active{ transform:translateY(1px); }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  .btn.primary:hover{ filter:brightness(1.05); }
+  .btn.ghost{ background:transparent; }
+  .btn.danger{ color:var(--crit); border-color:var(--crit); background:transparent; }
+  .btn:disabled{ opacity:.45; cursor:not-allowed; }
+  .btn svg{ width:15px; height:15px; flex:none; }
+
+  main.layout{
+    display:grid; grid-template-columns: minmax(0,1.35fr) minmax(320px, 1fr);
+    gap:16px; padding:16px; align-items:start;
+  }
+  @media (max-width: 900px){
+    main.layout{ grid-template-columns: 1fr; }
+  }
+
+  .panel{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); overflow:hidden;
+  }
+  .panel-head{
+    display:flex; align-items:center; gap:10px; justify-content:space-between;
+    padding:12px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap;
+  }
+  .panel-head h2{ font-size:19px; margin:0; }
+  .panel-head .hint{ color:var(--ink-soft); font-size:12px; }
+
+  .hintbar{
+    display:flex; align-items:center; gap:10px; padding:8px 14px;
+    background:var(--accent-soft); color:var(--ink); border-bottom:1px solid var(--line);
+    font-size:13px;
+  }
+  .hintbar b{ color:var(--accent); }
+  .hintbar .btn{ margin-left:auto; padding:4px 10px; font-size:12px; }
+
+  .canvas-wrap{
+    position:relative; overflow:auto; background:
+      linear-gradient(var(--surface-2) 1px, transparent 1px) 0 0/24px 24px,
+      linear-gradient(90deg, var(--surface-2) 1px, transparent 1px) 0 0/24px 24px,
+      var(--surface);
+    height:min(62vh, 640px); min-height:320px;
+  }
+  .canvas-wrap.empty{ display:flex; align-items:center; justify-content:center; }
+  #planCanvas{ display:block; cursor:crosshair; touch-action:none; }
+  .canvas-wrap.empty #planCanvas{ display:none; }
+  .canvas-wrap:not(.empty) .dropzone{ display:none; }
+
+  .dropzone{
+    width:min(100%, 520px); margin:24px; padding:28px 20px; text-align:center;
+    border:2px dashed var(--line); border-radius:12px; color:var(--ink-soft);
+  }
+  .dropzone.drag{ border-color:var(--accent); color:var(--ink); background:var(--accent-soft); }
+  .dropzone svg{ width:38px; height:38px; color:var(--ink-faint); margin-bottom:8px; }
+  .dropzone h3{ margin:6px 0 4px; font-size:20px; color:var(--ink); }
+  .dropzone p{ margin:0 0 14px; font-size:13px; }
+
+  .zoom-controls{ display:flex; align-items:center; gap:6px; }
+  .zoom-controls .btn{ padding:6px 9px; }
+  .zoom-readout{ font-family:"IBM Plex Mono"; font-size:12px; min-width:46px; text-align:center; color:var(--ink-soft); }
+
+  .scale-pill{
+    display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px;
+    background:var(--surface-2); border:1px solid var(--line); font-size:12px; color:var(--ink-soft);
+  }
+  .scale-pill.set{ color:var(--good); border-color:var(--good); }
+  .scale-pill .mono{ color:inherit; }
+
+  .stats{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line);
+    border-bottom:1px solid var(--line);
+  }
+  .stat{ background:var(--surface); padding:12px 14px; }
+  .stat .k{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-soft); }
+  .stat .v{ font-family:"Barlow Condensed"; font-weight:700; font-size:26px; line-height:1.1; margin-top:2px; }
+  .stat .v small{ font-size:13px; font-weight:600; color:var(--ink-soft); }
+
+  .chipbar{ display:flex; flex-wrap:wrap; gap:6px; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .chip{
+    display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:999px;
+    font-size:11.5px; font-weight:600; background:var(--surface-2); color:var(--ink);
+    border:1px solid var(--line);
+  }
+  .chip .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .chip .mono{ color:var(--ink-soft); font-weight:500; }
+
+  .table-wrap{ overflow-x:auto; }
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  thead th{
+    position:sticky; top:0; background:var(--surface); text-align:left; font-weight:600;
+    color:var(--ink-soft); text-transform:uppercase; font-size:10.5px; letter-spacing:.05em;
+    padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
+  }
+  tbody td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tbody tr.example{ opacity:.55; font-style:italic; }
+  tbody tr:hover{ background:var(--surface-2); }
+  tbody tr.hover-active{ background:var(--accent-soft); }
+  .cell-device{ display:flex; align-items:center; gap:6px; }
+  .cell-device .nr{
+    font-family:"IBM Plex Mono"; font-size:11px; color:var(--surface); background:var(--ink-soft);
+    border-radius:5px; padding:1px 5px; flex:none;
+  }
+  .cell-len{ font-family:"IBM Plex Mono"; white-space:nowrap; }
+  .cell-len .r{ color:var(--ink-soft); font-size:11px; display:block; }
+  .cell-type{ display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .cell-type .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .row-actions{ display:flex; gap:4px; }
+  .icon-btn{
+    border:1px solid var(--line); background:var(--surface); border-radius:6px; padding:4px 6px;
+    color:var(--ink-soft);
+  }
+  .icon-btn:hover{ color:var(--crit); border-color:var(--crit); }
+  .icon-btn svg{ width:13px; height:13px; display:block; }
+  .empty-list{ padding:22px 16px; text-align:center; color:var(--ink-soft); font-size:13px; }
+
+  .example-badge{
+    font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; background:var(--surface-2);
+    color:var(--ink-soft); border-radius:4px; padding:1px 5px; margin-left:6px;
+  }
+
+  footer.tips{ padding:14px 16px 0; color:var(--ink-soft); font-size:12px; max-width:1200px; margin:0 auto; }
+  footer.tips ul{ margin:6px 0 0; padding-left:18px; }
+
+  /* Modal */
+  .overlay{
+    position:fixed; inset:0; background:rgba(15,12,6,.45); backdrop-filter:blur(1px);
+    display:flex; align-items:center; justify-content:center; z-index:100; padding:20px;
+  }
+  .modal{
+    background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow);
+    width:100%; max-width:440px; max-height:90vh; overflow:auto;
+  }
+  .modal h3{ margin:0; padding:14px 18px; border-bottom:1px solid var(--line); font-size:20px; }
+  .modal .body{ padding:16px 18px; display:flex; flex-direction:column; gap:12px; }
+  .modal .foot{ padding:12px 18px 16px; display:flex; justify-content:flex-end; gap:8px; }
+  .field{ display:flex; flex-direction:column; gap:5px; }
+  .field label{ font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft); }
+  .field input, .field select, .field textarea{
+    border:1px solid var(--line); background:var(--bg); color:var(--ink);
+    border-radius:7px; padding:8px 10px;
+  }
+  .field textarea{ resize:vertical; min-height:52px; }
+  .field-row{ display:flex; gap:10px; }
+  .field-row .field{ flex:1; min-width:0; }
+  .readout{ background:var(--surface-2); border-radius:7px; padding:8px 10px; font-size:12.5px; color:var(--ink-soft); }
+  .readout b{ color:var(--ink); font-family:"IBM Plex Mono"; }
+
+  .visually-hidden{
+    position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+    clip:rect(0,0,0,0); white-space:nowrap; border:0;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">KT</span>
+      <div>
+        <h1>Kabeltrassen&#8209;Planer</h1>
+        <div class="sub">Zugplan markieren &middot; Kabelliste erzeugen</div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button class="btn ghost" id="btnLoadPlan" type="button">Plan laden</button>
+      <button class="btn ghost" id="btnCalibrate" type="button">Ma&szlig;stab setzen</button>
+      <button class="btn primary" id="btnNewCable" type="button">+ Neues Kabel</button>
+      <span style="width:1px;background:var(--line);align-self:stretch;"></span>
+      <button class="btn ghost" id="btnSaveProject" type="button">Projekt speichern</button>
+      <button class="btn ghost" id="btnLoadProject" type="button">Projekt laden</button>
+      <button class="btn ghost" id="btnExportCSV" type="button">CSV exportieren</button>
+    </div>
+    <input type="file" id="fileInputPlan" accept="image/*" class="visually-hidden">
+    <input type="file" id="fileInputProject" accept="application/json,.json" class="visually-hidden">
+  </header>
+
+  <main class="layout">
+
+    <section class="panel" id="canvasPanel">
+      <div class="panel-head">
+        <div>
+          <h2>Plan</h2>
+          <div class="hint" id="planFileName">Kein Plan geladen</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span class="scale-pill" id="scalePill">Ma&szlig;stab nicht gesetzt</span>
+          <div class="zoom-controls">
+            <button class="btn ghost" id="btnZoomOut" type="button" aria-label="Verkleinern">&minus;</button>
+            <span class="zoom-readout mono" id="zoomReadout">100%</span>
+            <button class="btn ghost" id="btnZoomIn" type="button" aria-label="Vergr&ouml;&szlig;ern">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="hintbar" id="modeHint" hidden>
+        <span id="modeHintText"></span>
+        <button class="btn ghost" id="btnCancelMode" type="button">Abbrechen (Esc)</button>
+      </div>
+
+      <div class="canvas-wrap empty" id="canvasWrap">
+        <canvas id="planCanvas"></canvas>
+        <div class="dropzone" id="dropzone">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3M7 9l5-5 5 5M12 4v13"/></svg>
+          <h3>Zugplan hochladen</h3>
+          <p>Bild des Wagenplans (PNG/JPG) hierher ziehen oder ausw&auml;hlen.<br>Danach Ma&szlig;stab setzen und Kabel einzeichnen.</p>
+          <button class="btn primary" id="btnDropzoneUpload" type="button">Bild ausw&auml;hlen</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="listPanel">
+      <div class="panel-head">
+        <h2>Kabelliste</h2>
+        <span class="hint" id="cableCountHint">0 Kabel</span>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="k">Kabelstrecken</div>
+          <div class="v" id="statCount">0</div>
+        </div>
+        <div class="stat">
+          <div class="k">L&auml;nge (Luftlinie)</div>
+          <div class="v" id="statDirect">&ndash; <small>m</small></div>
+        </div>
+        <div class="stat">
+          <div class="k">L&auml;nge inkl. Reserve</div>
+          <div class="v" id="statReserve">&ndash; <small>m</small></div>
+        </div>
+      </div>
+
+      <div class="chipbar" id="typeChips"></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Von / Ger&auml;t</th>
+              <th>Nach / Ziel</th>
+              <th>Kabeltyp</th>
+              <th>L&auml;nge</th>
+              <th>Bemerkung</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="cableTableBody"></tbody>
+        </table>
+        <div class="empty-list" id="emptyListMsg" hidden>Noch keine Kabel eingezeichnet &ndash; klicke oben auf &bdquo;+ Neues Kabel&ldquo;.</div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="tips">
+    <b>Ablauf:</b>
+    <ul>
+      <li><b>1. Plan laden</b> &ndash; Foto/Scan des Wagenplans (im Ma&szlig;stab) hochladen.</li>
+      <li><b>2. Ma&szlig;stab setzen</b> &ndash; zwei Punkte mit bekanntem Abstand anklicken (z.&nbsp;B. Wagenl&auml;nge) und die reale Distanz in Metern eintragen.</li>
+      <li><b>3. Kabel einzeichnen</b> &ndash; Ger&auml;teposition (AFZ, Kamera, WLAN&nbsp;&hellip;) und Zielpunkt (Schaltschrank/Verteiler) anklicken, Kabeltyp w&auml;hlen.</li>
+      <li><b>4. Exportieren</b> &ndash; Kabelliste als CSV (Excel) speichern, Projekt als Datei sichern um sp&auml;ter weiterzuarbeiten.</li>
+    </ul>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var DEVICE_TYPES = [
+    {id:"afz", label:"AFZ / Fahrgastinfo"},
+    {id:"kamera", label:"Kamera"},
+    {id:"wlan", label:"WLAN Access Point"},
+    {id:"pa", label:"Lautsprecher / PA"},
+    {id:"sonstige", label:"Sonstiges"}
+  ];
+  var CABLE_TYPES = [
+    {id:"cat7", label:"Cat7 S/FTP", color:"#3B6FD6"},
+    {id:"cat6a", label:"Cat6a", color:"#5B8DEF"},
+    {id:"koax", label:"Koax RG59", color:"#8B5CF6"},
+    {id:"lwl-mm", label:"LWL Multimode", color:"#14B8A6"},
+    {id:"lwl-sm", label:"LWL Singlemode", color:"#0D9488"},
+    {id:"steuer", label:"Steuerleitung", color:"#D1A73D"},
+    {id:"e230", label:"Energie 230V AC", color:"#E0574A"},
+    {id:"e24", label:"Energie 24V DC", color:"#4FAE78"},
+    {id:"sonstige", label:"Sonstige", color:"#8A94A0"}
+  ];
+  var DEFAULT_RESERVE_PCT = 15;
+  var STORAGE_KEY = "kabeltrassen-planer-v1";
+
+  function byId(id){ return document.getElementById(id); }
+  function cableTypeInfo(id){
+    for (var i=0;i<CABLE_TYPES.length;i++){ if (CABLE_TYPES[i].id===id) return CABLE_TYPES[i]; }
+    return CABLE_TYPES[CABLE_TYPES.length-1];
+  }
+  function deviceTypeLabel(id){
+    for (var i=0;i<DEVICE_TYPES.length;i++){ if (DEVICE_TYPES[i].id===id) return DEVICE_TYPES[i].label; }
+    return id;
+  }
+  function fmt(n){
+    if (n===null || n===undefined || isNaN(n)) return "–";
+    return n.toFixed(2).replace(".", ",");
+  }
+  function escapeHtml(s){
+    return String(s==null?"":s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+
+  var state = {
+    img: null, imgW: 0, imgH: 0, imgDataURL: null, planFileName: "",
+    scalePxPerM: null,
+    zoom: 1,
+    mode: "idle", // idle | calib1 | calib2 | cable1 | cable2
+    pending: null,
+    editingId: null,
+    cables: [],
+    hoverId: null,
+    nextId: 1
+  };
+
+  // ---------- persistence (best effort, per-viewer convenience only) ----------
+  function autosave(){
+    try{
+      var payload = serializeProject();
+      // Skip autosave of large images to avoid quota errors; keep metadata only.
+      if (payload.imgDataURL && payload.imgDataURL.length > 3500000) payload.imgDataURL = null;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    }catch(e){ /* storage unavailable or full - ignore, not relied upon */ }
+  }
+  function tryAutoload(){
+    try{
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      var payload = JSON.parse(raw);
+      if (payload && (payload.cables || []).length){
+        restoreProject(payload, true);
+      }
+    }catch(e){ /* ignore */ }
+  }
+
+  // ---------- geometry / canvas ----------
+  var canvas = byId("planCanvas");
+  var ctx = canvas.getContext("2d");
+  var canvasWrap = byId("canvasWrap");
+
+  function fitBaseScale(){
+    if (!state.imgW) return 1;
+    var wrapW = canvasWrap.clientWidth || 800;
+    var target = Math.min(wrapW - 4, 1400);
+    return Math.max(target / state.imgW, 0.02);
+  }
+  function renderScale(){ return fitBaseScale() * state.zoom; }
+
+  function redraw(){
+    if (!state.img){
+      canvasWrap.classList.add("empty");
+      return;
+    }
+    canvasWrap.classList.remove("empty");
+    var rs = renderScale();
+    var dpr = window.devicePixelRatio || 1;
+    var cssW = state.imgW * rs, cssH = state.imgH * rs;
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
+    canvas.width = Math.max(1, Math.round(cssW * dpr));
+    canvas.height = Math.max(1, Math.round(cssH * dpr));
+    ctx.setTransform(rs*dpr, 0, 0, rs*dpr, 0, 0);
+    ctx.clearRect(0,0,state.imgW,state.imgH);
+    ctx.drawImage(state.img, 0, 0, state.imgW, state.imgH);
+
+    // cables
+    state.cables.forEach(function(c, idx){
+      drawCable(c, idx+1, c.id === state.hoverId);
+    });
+
+    // in-progress calibration / cable line
+    if (state.pending && (state.mode==="calib2" || state.mode==="cable2")){
+      ctx.save();
+      ctx.strokeStyle = state.mode==="calib2" ? "#2F6FD6" : "#C1571F";
+      ctx.lineWidth = 2.4/rs;
+      ctx.setLineDash([8/rs,6/rs]);
+      ctx.beginPath();
+      ctx.moveTo(state.pending.x, state.pending.y);
+      ctx.lineTo(lastPointerImg.x, lastPointerImg.y);
+      ctx.stroke();
+      ctx.restore();
+      markPoint(state.pending.x, state.pending.y, state.mode==="calib2" ? "#2F6FD6" : "#C1571F");
+    } else if (state.pending && (state.mode==="calib1sel")){
+      // not used
+    }
+    if (state.pending && (state.mode==="calib2" || state.mode==="cable2")){
+      // already drawn above
+    }
+    if (state.pending && (state.mode==="calib1" || state.mode==="cable1")){
+      // nothing pending yet
+    }
+  }
+
+  function markPoint(x,y,color){
+    var rs = renderScale();
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x,y,4.5/rs,0,Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawCable(c, nr, isHover){
+    var rs = renderScale();
+    var info = cableTypeInfo(c.cableType);
+    ctx.save();
+    ctx.globalAlpha = (state.hoverId && !isHover) ? 0.35 : 1;
+    ctx.strokeStyle = info.color;
+    ctx.lineWidth = (isHover? 3.6 : 2.2) / rs;
+    ctx.beginPath();
+    ctx.moveTo(c.x1, c.y1);
+    ctx.lineTo(c.x2, c.y2);
+    ctx.stroke();
+
+    [ [c.x1,c.y1], [c.x2,c.y2] ].forEach(function(p){
+      ctx.beginPath();
+      ctx.fillStyle = info.color;
+      ctx.arc(p[0], p[1], 4/rs, 0, Math.PI*2);
+      ctx.fill();
+      ctx.lineWidth = 1.5/rs;
+      ctx.strokeStyle = "#fff";
+      ctx.stroke();
+    });
+
+    var mx = (c.x1+c.x2)/2, my = (c.y1+c.y2)/2;
+    var r = 10/rs;
+    ctx.beginPath();
+    ctx.fillStyle = "#20242B";
+    ctx.arc(mx,my,r,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.font = (12/rs) + "px 'IBM Plex Mono', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(nr), mx, my+0.5/rs);
+    ctx.restore();
+  }
+
+  var lastPointerImg = {x:0,y:0};
+  function pointerToImage(evt){
+    var rect = canvas.getBoundingClientRect();
+    var rs = renderScale();
+    var clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    var clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+    return {
+      x: (clientX - rect.left) / rs,
+      y: (clientY - rect.top) / rs
+    };
+  }
+
+  canvas.addEventListener("mousemove", function(evt){
+    lastPointerImg = pointerToImage(evt);
+    if (state.mode==="calib2" || state.mode==="cable2") redraw();
+  });
+
+  canvas.addEventListener("click", function(evt){
+    var p = pointerToImage(evt);
+    if (p.x<0||p.y<0||p.x>state.imgW||p.y>state.imgH) return;
+    handleCanvasClick(p);
+  });
+
+  function handleCanvasClick(p){
+    if (state.mode==="calib1"){
+      state.pending = p;
+      state.mode = "calib2";
+      updateModeHint();
+      redraw();
+      return;
+    }
+    if (state.mode==="calib2"){
+      var p1 = state.pending;
+      var pxDist = Math.hypot(p.x-p1.x, p.y-p1.y);
+      openCalibrationModal(pxDist);
+      return;
+    }
+    if (state.mode==="cable1"){
+      state.pending = p;
+      state.mode = "cable2";
+      updateModeHint();
+      redraw();
+      return;
+    }
+    if (state.mode==="cable2"){
+      var start = state.pending;
+      openCableModal(start, p);
+      return;
+    }
+  }
+
+  function updateModeHint(){
+    var bar = byId("modeHint"), text = byId("modeHintText");
+    if (state.mode==="calib1"){ bar.hidden=false; text.textContent="Maßstab: Klicke den ersten Punkt einer bekannten Strecke (z. B. Wagenanfang)."; }
+    else if (state.mode==="calib2"){ bar.hidden=false; text.textContent="Maßstab: Klicke den zweiten Punkt der bekannten Strecke."; }
+    else if (state.mode==="cable1"){ bar.hidden=false; text.textContent="Neues Kabel: Klicke die Geräteposition (Start)."; }
+    else if (state.mode==="cable2"){ bar.hidden=false; text.textContent="Neues Kabel: Klicke den Zielpunkt (z. B. Schaltschrank)."; }
+    else { bar.hidden=true; }
+  }
+
+  function cancelMode(){
+    state.mode="idle"; state.pending=null; state.editingId=null;
+    updateModeHint();
+    redraw();
+  }
+
+  document.addEventListener("keydown", function(e){
+    if (e.key==="Escape"){
+      if (!byId("modalHost").hidden){ closeModal(); }
+      else cancelMode();
+    }
+  });
+  byId("btnCancelMode").addEventListener("click", cancelMode);
+
+  // ---------- image loading ----------
+  function loadImageFromDataURL(dataURL, name, cb){
+    var img = new Image();
+    img.onload = function(){
+      state.img = img; state.imgW = img.naturalWidth; state.imgH = img.naturalHeight;
+      state.imgDataURL = dataURL; state.planFileName = name || "";
+      byId("planFileName").textContent = name || "Plan geladen";
+      state.zoom = 1;
+      redraw();
+      if (cb) cb();
+    };
+    img.src = dataURL;
+  }
+
+  function handlePlanFile(file){
+    if (!file) return;
+    var doLoad = function(){
+      var reader = new FileReader();
+      reader.onload = function(e){
+        loadImageFromDataURL(e.target.result, file.name, function(){
+          state.scalePxPerM = null; state.cables = []; state.nextId = 1;
+          updateScalePill(); renderTable(); autosave();
+        });
+      };
+      reader.readAsDataURL(file);
+    };
+    if (state.cables.length){
+      openConfirmModal(
+        "Neuen Plan laden?",
+        "Es sind bereits " + state.cables.length + " Kabel eingezeichnet. Beim Laden eines neuen Plans werden Kabelliste und Maßstab zurückgesetzt. Vorher ggf. über „Projekt speichern“ sichern.",
+        "Plan laden", doLoad
+      );
+    } else {
+      doLoad();
+    }
+  }
+
+  byId("fileInputPlan").addEventListener("change", function(e){
+    handlePlanFile(e.target.files[0]);
+    e.target.value = "";
+  });
+  byId("btnLoadPlan").addEventListener("click", function(){ byId("fileInputPlan").click(); });
+  byId("btnDropzoneUpload").addEventListener("click", function(){ byId("fileInputPlan").click(); });
+
+  var dropzone = byId("dropzone");
+  ["dragenter","dragover"].forEach(function(ev){
+    dropzone.addEventListener(ev, function(e){ e.preventDefault(); dropzone.classList.add("drag"); });
+  });
+  ["dragleave","drop"].forEach(function(ev){
+    dropzone.addEventListener(ev, function(e){ e.preventDefault(); dropzone.classList.remove("drag"); });
+  });
+  dropzone.addEventListener("drop", function(e){
+    var f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f && f.type.indexOf("image/")===0) handlePlanFile(f);
+  });
+
+  // ---------- zoom ----------
+  function setZoom(z){ state.zoom = Math.min(3, Math.max(0.25, z)); byId("zoomReadout").textContent = Math.round(state.zoom*100)+"%"; redraw(); }
+  byId("btnZoomIn").addEventListener("click", function(){ setZoom(state.zoom*1.25); });
+  byId("btnZoomOut").addEventListener("click", function(){ setZoom(state.zoom/1.25); });
+  window.addEventListener("resize", function(){ redraw(); });
+
+  // ---------- scale pill ----------
+  function updateScalePill(){
+    var pill = byId("scalePill");
+    if (state.scalePxPerM){
+      pill.classList.add("set");
+      pill.innerHTML = "Maßstab: 1&nbsp;m&nbsp;=&nbsp;<span class=\"mono\">" + state.scalePxPerM.toFixed(1) + "</span>&nbsp;px";
+    } else {
+      pill.classList.remove("set");
+      pill.textContent = "Maßstab nicht gesetzt";
+    }
+  }
+
+  byId("btnCalibrate").addEventListener("click", function(){
+    if (!state.img){ handlePlanFile(); byId("fileInputPlan").click(); return; }
+    state.mode="calib1"; state.pending=null; updateModeHint(); redraw();
+  });
+  byId("btnNewCable").addEventListener("click", function(){
+    if (!state.img){ byId("fileInputPlan").click(); return; }
+    state.editingId=null; state.mode="cable1"; state.pending=null; updateModeHint(); redraw();
+  });
+
+  // ---------- modal machinery ----------
+  var modalHost = document.createElement("div");
+  modalHost.id = "modalHost"; modalHost.hidden = true;
+  document.body.appendChild(modalHost);
+  function closeModal(){ modalHost.hidden = true; modalHost.innerHTML = ""; }
+  function openModal(html){
+    modalHost.innerHTML =
+      '<div class="overlay" id="modalOverlay"><div class="modal" role="dialog" aria-modal="true">' + html + '</div></div>';
+    modalHost.hidden = false;
+    byId("modalOverlay").addEventListener("mousedown", function(e){
+      if (e.target.id==="modalOverlay") { closeModal(); cancelMode(); }
+    });
+  }
+
+  function openConfirmModal(title, msg, okLabel, onOk){
+    openModal(
+      '<h3>' + escapeHtml(title) + '</h3>' +
+      '<div class="body"><p style="margin:0;color:var(--ink-soft);">' + escapeHtml(msg) + '</p></div>' +
+      '<div class="foot">' +
+        '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
+        '<button class="btn primary" id="mOk" type="button">' + escapeHtml(okLabel) + '</button>' +
+      '</div>'
+    );
+    byId("mCancel").addEventListener("click", closeModal);
+    byId("mOk").addEventListener("click", function(){ closeModal(); onOk(); });
+  }
+
+  function openCalibrationModal(pxDist){
+    openModal(
+      '<h3>Maßstab festlegen</h3>' +
+      '<div class="body">' +
+        '<div class="readout">Gemessene Strecke auf dem Plan: <b>' + pxDist.toFixed(1) + ' px</b></div>' +
+        '<div class="field"><label for="calibMeters">Reale Distanz (Meter)</label>' +
+        '<input type="number" id="calibMeters" min="0.01" step="0.01" placeholder="z. B. 24,50" autofocus></div>' +
+      '</div>' +
+      '<div class="foot">' +
+        '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
+        '<button class="btn primary" id="mOk" type="button">Übernehmen</button>' +
+      '</div>'
+    );
+    var input = byId("calibMeters");
+    input.focus();
+    function submit(){
+      var val = parseFloat(String(input.value).replace(",", "."));
+      if (!val || val<=0){ input.style.borderColor = "var(--crit)"; return; }
+      state.scalePxPerM = pxDist / val;
+      updateScalePill();
+      cancelMode();
+      closeModal();
+      renderTable();
+      autosave();
+    }
+    input.addEventListener("keydown", function(e){ if (e.key==="Enter") submit(); });
+    byId("mOk").addEventListener("click", submit);
+    byId("mCancel").addEventListener("click", function(){ closeModal(); cancelMode(); });
+  }
+
+  function deviceOptionsHtml(sel){
+    return DEVICE_TYPES.map(function(d){
+      return '<option value="'+d.id+'"'+(d.id===sel?' selected':'')+'>'+escapeHtml(d.label)+'</option>';
+    }).join("");
+  }
+  function cableOptionsHtml(sel){
+    return CABLE_TYPES.map(function(c){
+      return '<option value="'+c.id+'"'+(c.id===sel?' selected':'')+'>'+escapeHtml(c.label)+'</option>';
+    }).join("");
+  }
+
+  function openCableModal(p1, p2, existing){
+    var pxDist = p1 && p2 ? Math.hypot(p2.x-p1.x, p2.y-p1.y) : (existing ? Math.hypot(existing.x2-existing.x1, existing.y2-existing.y1) : 0);
+    var lenDirect = state.scalePxPerM ? pxDist/state.scalePxPerM : null;
+    var e = existing || {};
+    var reserve = e.reservePct != null ? e.reservePct : DEFAULT_RESERVE_PCT;
+
+    openModal(
+      '<h3>' + (existing ? "Kabel bearbeiten" : "Neues Kabel") + '</h3>' +
+      '<div class="body">' +
+        (lenDirect!=null
+          ? '<div class="readout">Direkte Strecke (Luftlinie): <b>' + fmt(lenDirect) + ' m</b></div>'
+          : '<div class="readout" style="color:var(--warn)">Maßstab nicht gesetzt &ndash; Länge kann nicht berechnet werden (Pixel: ' + pxDist.toFixed(0) + ').</div>') +
+        '<div class="field-row">' +
+          '<div class="field"><label for="cfDevice">Gerätetyp</label>' +
+          '<select id="cfDevice">' + deviceOptionsHtml(e.deviceType||"afz") + '</select></div>' +
+          '<div class="field"><label for="cfReserve">Reserve (%)</label>' +
+          '<input type="number" id="cfReserve" min="0" max="100" step="1" value="'+reserve+'"></div>' +
+        '</div>' +
+        '<div class="field"><label for="cfFrom">Von / Position (z. B. Wagen 3, Abteil 2, Deckenauslass)</label>' +
+        '<input type="text" id="cfFrom" value="'+escapeHtml(e.fromLabel||"")+'" placeholder="Position des Geräts" autofocus></div>' +
+        '<div class="field"><label for="cfTo">Nach / Ziel (z. B. Schaltschrank Wagen 3)</label>' +
+        '<input type="text" id="cfTo" value="'+escapeHtml(e.toLabel||"")+'" placeholder="Zielpunkt / Verteiler"></div>' +
+        '<div class="field"><label for="cfCableType">Kabeltyp</label>' +
+        '<select id="cfCableType">' + cableOptionsHtml(e.cableType||"cat7") + '</select></div>' +
+        '<div class="field"><label for="cfNote">Bemerkung (optional)</label>' +
+        '<textarea id="cfNote" placeholder="z. B. Verlegung im Kabelkanal Decke, Zugentlastung nötig">'+escapeHtml(e.note||"")+'</textarea></div>' +
+      '</div>' +
+      '<div class="foot">' +
+        '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
+        '<button class="btn primary" id="mOk" type="button">' + (existing?"Speichern":"Kabel hinzufügen") + '</button>' +
+      '</div>'
+    );
+
+    function submit(){
+      var deviceType = byId("cfDevice").value;
+      var reservePct = parseFloat(byId("cfReserve").value) || 0;
+      var fromLabel = byId("cfFrom").value.trim();
+      var toLabel = byId("cfTo").value.trim();
+      var cableType = byId("cfCableType").value;
+      var note = byId("cfNote").value.trim();
+      if (!fromLabel) fromLabel = deviceTypeLabel(deviceType);
+      if (!toLabel) toLabel = "Ziel unbenannt";
+
+      var lenD = state.scalePxPerM ? pxDist/state.scalePxPerM : null;
+      var lenR = lenD!=null ? lenD * (1+reservePct/100) : null;
+
+      if (existing){
+        existing.deviceType=deviceType; existing.reservePct=reservePct; existing.fromLabel=fromLabel;
+        existing.toLabel=toLabel; existing.cableType=cableType; existing.note=note;
+        existing.lengthDirect=lenD; existing.lengthReserve=lenR;
+      } else {
+        state.cables.push({
+          id: state.nextId++,
+          deviceType: deviceType, fromLabel: fromLabel, toLabel: toLabel,
+          cableType: cableType, reservePct: reservePct, note: note,
+          x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y,
+          lengthDirect: lenD, lengthReserve: lenR
+        });
+      }
+      closeModal();
+      cancelMode();
+      renderTable();
+      redraw();
+      autosave();
+    }
+    byId("mOk").addEventListener("click", submit);
+    byId("mCancel").addEventListener("click", function(){ closeModal(); cancelMode(); });
+  }
+
+  // ---------- table / summary ----------
+  var EXAMPLE_ROW = {
+    fromLabel:"AFZ Wagen 3, Deckenauslass", toLabel:"Schaltschrank Wagen 3",
+    cableType:"cat7", lengthDirect:8.4, lengthReserve:9.7, note:"Beispielzeile"
+  };
+
+  function renderTable(){
+    var tbody = byId("cableTableBody");
+    var rows = "";
+    var showExample = state.cables.length===0;
+
+    if (showExample){
+      var info = cableTypeInfo(EXAMPLE_ROW.cableType);
+      rows += '<tr class="example">' +
+        '<td>' + escapeHtml(EXAMPLE_ROW.fromLabel) + '<span class="example-badge">Beispiel</span></td>' +
+        '<td>' + escapeHtml(EXAMPLE_ROW.toLabel) + '</td>' +
+        '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
+        '<td class="cell-len">' + fmt(EXAMPLE_ROW.lengthReserve) + ' m<span class="r">' + fmt(EXAMPLE_ROW.lengthDirect) + ' m direkt</span></td>' +
+        '<td>' + escapeHtml(EXAMPLE_ROW.note) + '</td>' +
+        '<td></td>' +
+      '</tr>';
+    }
+
+    state.cables.forEach(function(c, idx){
+      var info = cableTypeInfo(c.cableType);
+      rows += '<tr data-id="'+c.id+'" class="' + (c.id===state.hoverId?'hover-active':'') + '">' +
+        '<td><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
+          '<div>' + escapeHtml(c.fromLabel) + '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + escapeHtml(deviceTypeLabel(c.deviceType)) + '</div></div>' +
+        '</div></td>' +
+        '<td>' + escapeHtml(c.toLabel) + '</td>' +
+        '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
+        '<td class="cell-len">' + (c.lengthReserve!=null? fmt(c.lengthReserve)+' m' : '–') +
+          (c.lengthDirect!=null? '<span class="r">'+fmt(c.lengthDirect)+' m direkt · +'+c.reservePct+'%</span>':'') + '</td>' +
+        '<td>' + escapeHtml(c.note||"") + '</td>' +
+        '<td><div class="row-actions">' +
+          '<button class="icon-btn" data-act="edit" data-id="'+c.id+'" type="button" title="Bearbeiten" aria-label="Bearbeiten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></button>' +
+          '<button class="icon-btn" data-act="del" data-id="'+c.id+'" type="button" title="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13"/></svg></button>' +
+        '</div></td>' +
+      '</tr>';
+    });
+
+    tbody.innerHTML = rows;
+    byId("emptyListMsg").hidden = true;
+    byId("cableCountHint").textContent = state.cables.length + (state.cables.length===1 ? " Kabel" : " Kabel");
+
+    tbody.querySelectorAll('[data-act="del"]').forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var id = parseFloat(btn.getAttribute("data-id"));
+        var c = state.cables.find(function(x){return x.id===id;});
+        openConfirmModal("Kabel löschen?", "„" + (c?c.fromLabel:"") + " → " + (c?c.toLabel:"") + "“ wird aus der Kabelliste entfernt.", "Löschen", function(){
+          state.cables = state.cables.filter(function(x){return x.id!==id;});
+          renderTable(); redraw(); autosave();
+        });
+      });
+    });
+    tbody.querySelectorAll('[data-act="edit"]').forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var id = parseFloat(btn.getAttribute("data-id"));
+        var c = state.cables.find(function(x){return x.id===id;});
+        if (c) openCableModal(null, null, c);
+      });
+    });
+    tbody.querySelectorAll("tr[data-id]").forEach(function(tr){
+      tr.addEventListener("mouseenter", function(){ state.hoverId = parseFloat(tr.getAttribute("data-id")); redraw(); tr.classList.add("hover-active"); });
+      tr.addEventListener("mouseleave", function(){ state.hoverId = null; redraw(); tr.classList.remove("hover-active"); });
+    });
+
+    updateSummary();
+  }
+
+  function updateSummary(){
+    var count = state.cables.length;
+    var totalDirect = 0, totalReserve = 0, anyLen=false;
+    var byType = {};
+    state.cables.forEach(function(c){
+      if (c.lengthReserve!=null){ totalDirect += c.lengthDirect; totalReserve += c.lengthReserve; anyLen=true; }
+      byType[c.cableType] = (byType[c.cableType]||0) + (c.lengthReserve||0);
+    });
+    byId("statCount").textContent = count;
+    byId("statDirect").innerHTML = anyLen ? fmt(totalDirect) + " <small>m</small>" : "–";
+    byId("statReserve").innerHTML = anyLen ? fmt(totalReserve) + " <small>m</small>" : "–";
+
+    var chipbar = byId("typeChips");
+    var ids = Object.keys(byType);
+    if (!ids.length){ chipbar.innerHTML = '<span class="hint">Aufschlüsselung nach Kabeltyp erscheint hier.</span>'; }
+    else {
+      chipbar.innerHTML = ids.map(function(id){
+        var info = cableTypeInfo(id);
+        return '<span class="chip"><span class="dot" style="background:'+info.color+'"></span>'+info.label+' <span class="mono">'+fmt(byType[id])+' m</span></span>';
+      }).join("");
+    }
+  }
+
+  // ---------- export ----------
+  async function saveFile(filename, data){
+    try{
+      if (window.claude && typeof window.claude.use === "function"){
+        var downloads = await window.claude.use("downloads");
+        if (downloads){
+          await downloads.save({filename: filename, data: data});
+          return true;
+        }
+      }
+    }catch(err){
+      if (err && err.code === "declined") return false;
+      // fall through to classic download for any other failure
+    }
+    try{
+      var blob = (data instanceof Blob) ? data : new Blob([data], {type:"application/octet-stream"});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+      return true;
+    }catch(e2){ return false; }
+  }
+
+  function csvEscape(v){
+    v = String(v==null?"":v);
+    if (/[;"\n]/.test(v)) v = '"' + v.replace(/"/g,'""') + '"';
+    return v;
+  }
+
+  byId("btnExportCSV").addEventListener("click", function(){
+    var lines = [["Nr","Von / Gerät","Gerätetyp","Nach / Ziel","Kabeltyp","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Bemerkung"].join(";")];
+    state.cables.forEach(function(c, idx){
+      lines.push([
+        idx+1, csvEscape(c.fromLabel), csvEscape(deviceTypeLabel(c.deviceType)), csvEscape(c.toLabel),
+        csvEscape(cableTypeInfo(c.cableType).label),
+        c.lengthDirect!=null?fmt(c.lengthDirect):"", c.lengthReserve!=null?fmt(c.lengthReserve):"",
+        c.reservePct, csvEscape(c.note||"")
+      ].join(";"));
+    });
+    var csv = "﻿" + lines.join("\r\n");
+    var name = (state.planFileName ? state.planFileName.replace(/\.[a-zA-Z0-9]+$/,"") + "-" : "") + "kabelliste.csv";
+    saveFile(name, csv);
+  });
+
+  // ---------- project save/load ----------
+  function serializeProject(){
+    return {
+      version:1, planFileName: state.planFileName, imgDataURL: state.imgDataURL,
+      scalePxPerM: state.scalePxPerM, cables: state.cables, nextId: state.nextId
+    };
+  }
+  function restoreProject(payload, silent){
+    state.cables = payload.cables || [];
+    state.nextId = payload.nextId || (state.cables.reduce(function(m,c){return Math.max(m,c.id);},0)+1);
+    state.scalePxPerM = payload.scalePxPerM || null;
+    updateScalePill();
+    if (payload.imgDataURL){
+      loadImageFromDataURL(payload.imgDataURL, payload.planFileName, function(){
+        renderTable(); redraw();
+      });
+    } else {
+      renderTable(); redraw();
+    }
+  }
+
+  byId("btnSaveProject").addEventListener("click", function(){
+    var json = JSON.stringify(serializeProject());
+    var name = (state.planFileName ? state.planFileName.replace(/\.[a-zA-Z0-9]+$/,"") + "-" : "") + "projekt.json";
+    saveFile(name, json);
+  });
+  byId("btnLoadProject").addEventListener("click", function(){ byId("fileInputProject").click(); });
+  byId("fileInputProject").addEventListener("change", function(e){
+    var file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      try{
+        var payload = JSON.parse(ev.target.result);
+        restoreProject(payload);
+        autosave();
+      }catch(err){
+        openConfirmModal("Datei ungültig", "Diese Datei konnte nicht als Projekt gelesen werden.", "OK", function(){});
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  // ---------- init ----------
+  updateModeHint();
+  updateScalePill();
+  renderTable();
+  tryAutoload();
+  redraw();
+
+})();
+</script>
+</body>
+</html>
