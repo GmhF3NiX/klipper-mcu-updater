@@ -138,6 +138,18 @@
       var(--surface);
     height:min(62vh, 640px); min-height:320px;
   }
+
+  /* Vollbild-Plan: beim Anklicken eines Kabels der gesamte Verlegeweg auf
+     dem kompletten Bildschirm statt im kleinen Panel. */
+  #canvasPanel.plan-fullscreen{
+    position:fixed; inset:0; z-index:300; border-radius:0; margin:0;
+    display:flex; flex-direction:column; height:100vh; height:100dvh;
+  }
+  #canvasPanel.plan-fullscreen .canvas-wrap{ flex:1 1 auto; height:auto; min-height:0; }
+  #canvasPanel.plan-fullscreen .panel-head{
+    padding-top:max(12px, env(safe-area-inset-top, 0px));
+  }
+  body.plan-fullscreen-active{ overflow:hidden; }
   .canvas-wrap.empty{ display:flex; align-items:center; justify-content:center; }
   #planCanvas{ display:block; cursor:crosshair; touch-action:manipulation; }
   .canvas-wrap.empty #planCanvas{ display:none; }
@@ -323,7 +335,7 @@
   /* Modal */
   .overlay{
     position:fixed; inset:0; background:rgba(15,12,6,.45); backdrop-filter:blur(1px);
-    display:flex; align-items:center; justify-content:center; z-index:100; padding:20px;
+    display:flex; align-items:center; justify-content:center; z-index:400; padding:20px;
   }
   .modal{
     background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow);
@@ -397,6 +409,7 @@
             <span class="zoom-readout mono" id="zoomReadout">100%</span>
             <button class="btn ghost" id="btnZoomIn" type="button" aria-label="Vergr&ouml;&szlig;ern">+</button>
           </div>
+          <button class="btn primary" id="btnExitFullscreen" type="button" hidden>&larr; Zur&uuml;ck zur Liste</button>
         </div>
       </div>
 
@@ -1100,6 +1113,7 @@
   }
 
   function jumpToTableRow(id){
+    if (isPlanFullscreen()) exitPlanFullscreen();
     var c = state.cables.find(function(x){ return x.id===id; });
     if (c && !cableMatchesFilter(c)){
       state.wagenFilter = "";
@@ -1144,6 +1158,7 @@
   document.addEventListener("keydown", function(e){
     if (e.key==="Escape"){
       if (!byId("modalHost").hidden){ closeModal(); }
+      else if (isPlanFullscreen()){ exitPlanFullscreen(); }
       else cancelMode();
     }
   });
@@ -1273,8 +1288,25 @@
     })();
   }
 
+  // ---------- Vollbild-Plan (beim Kabel-Klick) ----------
+  function enterPlanFullscreen(){
+    byId("canvasPanel").classList.add("plan-fullscreen");
+    document.body.classList.add("plan-fullscreen-active");
+    byId("btnExitFullscreen").hidden = false;
+  }
+  function exitPlanFullscreen(){
+    byId("canvasPanel").classList.remove("plan-fullscreen");
+    document.body.classList.remove("plan-fullscreen-active");
+    byId("btnExitFullscreen").hidden = true;
+    redraw();
+  }
+  function isPlanFullscreen(){ return byId("canvasPanel").classList.contains("plan-fullscreen"); }
+  byId("btnExitFullscreen").addEventListener("click", exitPlanFullscreen);
+
   function locateCableOnPlan(c, end){
     if (!state.img) return;
+    enterPlanFullscreen();
+
     var path = computeCableGeometry(c).path;
     var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
     path.forEach(function(p){
@@ -1283,18 +1315,15 @@
     });
     var cx = (minX+maxX)/2, cy = (minY+maxY)/2;
 
-    var canvasPanel = byId("canvasPanel");
-    if (canvasPanel && canvasPanel.scrollIntoView) canvasPanel.scrollIntoView({behavior:"smooth", block:"start"});
-
-    // Zoom so der ganze Verlegeweg (inkl. Umwege über eine Trasse) ins
-    // Bild passt, statt nur den angeklickten Punkt zu zentrieren.
+    // Zoom so der ganze Verlegeweg (inkl. Umwege über eine Trasse) den
+    // kompletten (jetzt vollflächigen) Bildschirm ausfüllt.
     var wrapW = canvasWrap.clientWidth, wrapH = canvasWrap.clientHeight;
     var base = fitBaseScale();
     var pad = 70;
     var spanW = Math.max(maxX-minX, 1), spanH = Math.max(maxY-minY, 1);
-    var targetZoom = Math.min((wrapW-pad*2)/(base*spanW), (wrapH-pad*2)/(base*spanH), 3);
+    var targetZoom = Math.min((wrapW-pad*2)/(base*spanW), (wrapH-pad*2)/(base*spanH), 4);
     targetZoom = Math.max(targetZoom, 1.2);
-    if (Math.abs(state.zoom-targetZoom) > 0.05) setZoom(targetZoom); else redraw();
+    setZoom(targetZoom);
 
     var rs = renderScale();
     canvasWrap.scrollTo({
