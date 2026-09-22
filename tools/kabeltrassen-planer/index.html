@@ -384,8 +384,8 @@
       <button class="btn ghost" id="btnGrundwerte" type="button">Grundwerte</button>
       <button class="btn ghost" id="btnGesamt" type="button">Gesamt&uuml;bersicht</button>
       <span style="width:1px;background:var(--line);align-self:stretch;"></span>
-      <button class="btn ghost" id="btnLock" type="button">Sperren</button>
-      <button class="btn primary" id="btnUnlock" type="button" hidden>Entsperren</button>
+      <button class="btn ghost" id="btnLock" type="button">Admin-Logout</button>
+      <button class="btn primary" id="btnUnlock" type="button" hidden>Admin-Login</button>
     </div>
     <input type="file" id="fileInputPlan" accept="image/*" class="visually-hidden">
     <input type="file" id="fileInputProject" accept="application/json,.json" class="visually-hidden">
@@ -1620,7 +1620,7 @@
     openModal(
       '<h3>Grundwerte</h3>' +
       '<div class="body">' +
-        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Gewicht (fürs Gesamtgewicht je Wagen), Lagerplatz und Sticker-Foto je Bauteil – beim Stecker zusätzlich Artikel-Nr., ein Montage-/Abisolierbild und ein Schaltplan (Anschlussbelegung) – nur zum Einrichten, danach über „Sperren“ schützbar.</p>' +
+        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Gewicht (fürs Gesamtgewicht je Wagen), Lagerplatz und Sticker-Foto je Bauteil – beim Stecker zusätzlich Artikel-Nr., ein Montage-/Abisolierbild und ein Schaltplan (Anschlussbelegung) – nur zum Einrichten, danach über „Admin-Logout“ schützbar.</p>' +
         '<div><div class="aufmass-label" style="padding:0 0 4px;">Kabel</div>' +
         '<div class="material-list">' + cableRows + '</div></div>' +
         '<div><div class="aufmass-label" style="padding:0 0 4px;">Stecker</div>' +
@@ -2249,14 +2249,14 @@
     openModal(
       '<h3>Admin-PIN festlegen</h3>' +
       '<div class="body">' +
-        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Diese PIN wird sp&auml;ter zum Entsperren gebraucht. Gut aufbewahren &ndash; sie l&auml;sst sich hier nicht zur&uuml;cksetzen.</p>' +
+        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Diese PIN wird sp&auml;ter für den Admin-Login gebraucht. Gut aufbewahren &ndash; sie l&auml;sst sich hier nicht zur&uuml;cksetzen.</p>' +
         '<div class="field"><label for="pinNew">Neue PIN (mind. 4 Zeichen)</label><input type="password" id="pinNew" inputmode="numeric" autofocus></div>' +
         '<div class="field"><label for="pinNew2">PIN best&auml;tigen</label><input type="password" id="pinNew2" inputmode="numeric"></div>' +
         '<div id="pinError" class="readout" style="display:none;color:var(--crit);"></div>' +
       '</div>' +
       '<div class="foot">' +
         '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
-        '<button class="btn primary" id="mOk" type="button">PIN setzen &amp; sperren</button>' +
+        '<button class="btn primary" id="mOk" type="button">PIN setzen &amp; Admin-Logout</button>' +
       '</div>'
     );
     function showErr(msg){ var el=byId("pinError"); el.textContent=msg; el.style.display="block"; }
@@ -2273,14 +2273,14 @@
 
   function openUnlockModal(){
     openModal(
-      '<h3>Entsperren</h3>' +
+      '<h3>Admin-Login</h3>' +
       '<div class="body">' +
         '<div class="field"><label for="pinCheck">Admin-PIN</label><input type="password" id="pinCheck" inputmode="numeric" autofocus></div>' +
         '<div id="pinError" class="readout" style="display:none;color:var(--crit);"></div>' +
       '</div>' +
       '<div class="foot">' +
         '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
-        '<button class="btn primary" id="mOk" type="button">Entsperren</button>' +
+        '<button class="btn primary" id="mOk" type="button">Admin-Login</button>' +
       '</div>'
     );
     function showErr(msg){ var el=byId("pinError"); el.textContent=msg; el.style.display="block"; }
