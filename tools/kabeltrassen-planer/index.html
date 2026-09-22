@@ -893,18 +893,69 @@
     ctx.restore();
 
     if (c.id === state.blinkId){
-      var elapsed = performance.now() - state.blinkStart;
-      var pulse = (Math.sin(elapsed/180) + 1) / 2; // 0..1
-      var bp = state.blinkEnd==="to" ? path[path.length-1] : path[0];
-      ctx.save();
-      ctx.strokeStyle = "#C1571F";
-      ctx.globalAlpha = 0.35 + 0.5*pulse;
-      ctx.lineWidth = 2.5/rs;
-      ctx.beginPath();
-      ctx.arc(bp.x, bp.y, (9 + 10*pulse)/rs, 0, Math.PI*2);
-      ctx.stroke();
-      ctx.restore();
+      drawPathTrace(path, state.blinkEnd, rs);
     }
+  }
+
+  // "Wo muss ich das Kabel herlegen?": ein Punkt läuft den tatsächlichen
+  // Verlegeweg entlang (inkl. Umwege über eine Trasse), die Strecke
+  // zeichnet sich dabei nach - Start beim angeklickten Ende.
+  function drawPathTrace(path, startEnd, rs){
+    var ordered = startEnd==="to" ? path.slice().reverse() : path;
+    var cum = [0];
+    for (var i=1;i<ordered.length;i++) cum.push(cum[i-1] + dist(ordered[i-1], ordered[i]));
+    var total = cum[cum.length-1];
+
+    var elapsed = performance.now() - state.blinkStart;
+    var TRAVEL_MS = 1500, HOLD_MS = 600;
+    var t = Math.min(1, elapsed / TRAVEL_MS);
+    var eased = t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2; // easeInOutQuad
+    var travelDist = eased * total;
+
+    var revealed = [ordered[0]];
+    var ball = ordered[ordered.length-1];
+    for (var i=1;i<ordered.length;i++){
+      if (cum[i] <= travelDist){ revealed.push(ordered[i]); continue; }
+      var segLen = cum[i]-cum[i-1];
+      var segT = segLen>0 ? (travelDist-cum[i-1])/segLen : 0;
+      ball = { x: ordered[i-1].x+(ordered[i].x-ordered[i-1].x)*segT, y: ordered[i-1].y+(ordered[i].y-ordered[i-1].y)*segT };
+      revealed.push(ball);
+      break;
+    }
+
+    ctx.save();
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 7.5/rs;
+    ctx.beginPath();
+    revealed.forEach(function(p,i){ i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y); });
+    ctx.stroke();
+    ctx.strokeStyle = "#C1571F";
+    ctx.lineWidth = 4.5/rs;
+    ctx.beginPath();
+    revealed.forEach(function(p,i){ i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y); });
+    ctx.stroke();
+
+    // Ziel-Markierung: sanft pulsierender Ring am Zielpunkt.
+    var target = ordered[ordered.length-1];
+    var pulse = (Math.sin(performance.now()/180) + 1) / 2;
+    ctx.strokeStyle = "#C1571F";
+    ctx.globalAlpha = 0.3 + 0.4*pulse;
+    ctx.lineWidth = 2/rs;
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, (8 + 6*pulse)/rs, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // Laufender Punkt.
+    ctx.fillStyle = "#C1571F";
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, 6.5/rs, 0, Math.PI*2);
+    ctx.fill();
+    ctx.lineWidth = 2/rs;
+    ctx.strokeStyle = "#ffffff";
+    ctx.stroke();
+    ctx.restore();
   }
 
   var lastPointerImg = {x:0,y:0};
@@ -1186,7 +1237,9 @@
   window.addEventListener("resize", function(){ redraw(); });
 
   // ---------- "wo ist das?" - Kabel in der Liste anklicken springt zur
-  // Geräteposition im Plan, zoomt näher heran und lässt den Punkt blinken.
+  // Geräteposition im Plan, zoomt näher heran und zeigt den Verlegeweg
+  // als Trace-Animation (siehe drawPathTrace).
+  var PATH_TRACE_MS = 2100; // muss mit TRAVEL_MS+HOLD_MS in drawPathTrace zusammenpassen
   function startBlink(id, end){
     state.blinkId = id;
     state.blinkEnd = end==="to" ? "to" : "from";
@@ -1194,7 +1247,7 @@
     if (state.blinkRAF) cancelAnimationFrame(state.blinkRAF);
     (function tick(){
       redraw();
-      if (performance.now() - state.blinkStart < 1800){
+      if (performance.now() - state.blinkStart < PATH_TRACE_MS){
         state.blinkRAF = requestAnimationFrame(tick);
       } else {
         state.blinkId = null; state.blinkRAF = null;
@@ -1205,16 +1258,31 @@
 
   function locateCableOnPlan(c, end){
     if (!state.img) return;
-    var p = end==="to" ? {x:c.x2,y:c.y2} : {x:c.x1,y:c.y1};
+    var path = computeCableGeometry(c).path;
+    var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    path.forEach(function(p){
+      minX=Math.min(minX,p.x); minY=Math.min(minY,p.y);
+      maxX=Math.max(maxX,p.x); maxY=Math.max(maxY,p.y);
+    });
+    var cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+
     var canvasPanel = byId("canvasPanel");
     if (canvasPanel && canvasPanel.scrollIntoView) canvasPanel.scrollIntoView({behavior:"smooth", block:"start"});
-    if (state.zoom < 1.6) setZoom(1.8); else redraw();
-    var rs = renderScale();
-    var targetX = p.x * rs, targetY = p.y * rs;
+
+    // Zoom so der ganze Verlegeweg (inkl. Umwege über eine Trasse) ins
+    // Bild passt, statt nur den angeklickten Punkt zu zentrieren.
     var wrapW = canvasWrap.clientWidth, wrapH = canvasWrap.clientHeight;
+    var base = fitBaseScale();
+    var pad = 70;
+    var spanW = Math.max(maxX-minX, 1), spanH = Math.max(maxY-minY, 1);
+    var targetZoom = Math.min((wrapW-pad*2)/(base*spanW), (wrapH-pad*2)/(base*spanH), 3);
+    targetZoom = Math.max(targetZoom, 1.2);
+    if (Math.abs(state.zoom-targetZoom) > 0.05) setZoom(targetZoom); else redraw();
+
+    var rs = renderScale();
     canvasWrap.scrollTo({
-      left: Math.max(0, targetX - wrapW/2),
-      top: Math.max(0, targetY - wrapH/2),
+      left: Math.max(0, cx*rs - wrapW/2),
+      top: Math.max(0, cy*rs - wrapH/2),
       behavior: "smooth"
     });
     startBlink(c.id, end);
