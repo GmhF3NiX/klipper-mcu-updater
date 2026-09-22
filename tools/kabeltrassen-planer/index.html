@@ -225,10 +225,7 @@
     width:34px; height:34px; object-fit:cover; border-radius:6px;
     border:1px solid var(--line); background:var(--surface-2); flex:none;
   }
-  .sticker-btn{ font-size:11.5px; padding:5px 9px; position:relative; overflow:hidden; cursor:pointer; }
-  .sticker-btn input[type="file"]{
-    position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;
-  }
+  .sticker-btn{ font-size:11.5px; padding:5px 9px; }
   .sticker-remove{ padding:4px 6px; }
 
   /* Sperrmodus: Bearbeiten ausgeblendet, reine Ansicht */
@@ -1585,7 +1582,8 @@
       var val = currentImage(mtype, key, kind);
       return '<div class="sticker-row" data-mtype="'+mtype+'" data-mkey="'+escapeHtml(key)+'" data-kind="'+kind+'">' +
         '<img class="sticker-thumb" src="'+(val||"")+'"'+(val?'':' hidden')+'>' +
-        '<label class="btn ghost sticker-btn">'+escapeHtml(label)+'<input type="file" accept="image/*" class="sticker-input"></label>' +
+        '<button class="btn ghost sticker-btn" type="button">'+escapeHtml(label)+'</button>' +
+        '<input type="file" accept="image/*" class="sticker-input visually-hidden">' +
         '<button class="icon-btn sticker-remove" type="button" title="Bild entfernen" aria-label="Bild entfernen"'+(val?'':' hidden')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
       '</div>';
     }
@@ -1639,6 +1637,11 @@
       var fileInput = row.querySelector(".sticker-input");
       var thumb = row.querySelector(".sticker-thumb");
       var removeBtn = row.querySelector(".sticker-remove");
+      var pickBtn = row.querySelector(".sticker-btn");
+      // Button statt Label+Overlay: löst auf manchen Mobilgeräten (iOS-
+      // Webview im Artifact) den Dateidialog zuverlässiger aus als ein
+      // Label, das einen unsichtbaren Datei-Input überlagert.
+      pickBtn.addEventListener("click", function(){ fileInput.click(); });
       fileInput.addEventListener("change", function(){
         var f = fileInput.files[0];
         fileInput.value = "";
