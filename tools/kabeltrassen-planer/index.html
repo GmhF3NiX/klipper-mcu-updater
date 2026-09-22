@@ -398,6 +398,13 @@
   var CONNECTOR_PRESETS = [
     "4-pol Stecker", "5-pol Stecker", "8-pol Stecker", "RJ45", "M12 Stecker", "CEE-Stecker", "Schuko-Stecker", "Klemme"
   ];
+  // Startvorschläge für Positionen – vor allem der Geräteträger, an dem
+  // fast alle Kabel enden/beginnen und der mehrere Komponenten trägt.
+  // Wächst automatisch um alles, was tatsächlich schon eingetragen wurde.
+  var LOCATION_PRESETS = [
+    "Geräteträger – WLAN Router", "Geräteträger – Switch", "Geräteträger – Roxtec Kabeldurchführung",
+    "Geräteträger – Patchpanel", "Geräteträger – Netzteil", "Geräteträger – Klemmleiste"
+  ];
   var CABLE_TYPES = [
     {id:"cat7", label:"Cat7 S/FTP", color:"#3B6FD6"},
     {id:"cat6a", label:"Cat6a", color:"#5B8DEF"},
@@ -1077,6 +1084,24 @@
     }).join("") + '</datalist>';
   }
 
+  // Positionen (v.a. der Geräteträger mit seinen Komponenten): feste
+  // Vorschläge + alles bereits eingetragene Von/Nach, damit wiederkehrende
+  // Ziele nicht jedes Mal neu getippt werden müssen.
+  function locationSuggestions(){
+    var set = {};
+    LOCATION_PRESETS.forEach(function(p){ set[p]=true; });
+    state.cables.forEach(function(c){
+      if (c.fromLabel) set[c.fromLabel]=true;
+      if (c.toLabel) set[c.toLabel]=true;
+    });
+    return Object.keys(set).sort(function(a,b){ return a.localeCompare(b,"de"); });
+  }
+  function locationDatalistHtml(){
+    return '<datalist id="locationList">' + locationSuggestions().map(function(s){
+      return '<option value="'+escapeHtml(s)+'"></option>';
+    }).join("") + '</datalist>';
+  }
+
   function openCableModal(p1, p2, existing){
     var e = existing || {};
     var pt1 = p1 || {x:e.x1, y:e.y1};
@@ -1107,22 +1132,22 @@
           '<input type="number" id="cfReserve" min="0" max="100" step="1" value="'+reserve+'"></div>' +
         '</div>' +
         '<div class="field"><label for="cfFrom">Von / Position (z. B. Wagen 3, Abteil 2, Deckenauslass)</label>' +
-        '<input type="text" id="cfFrom" value="'+escapeHtml(e.fromLabel||"")+'" placeholder="Position des Geräts" autofocus></div>' +
+        '<input type="text" id="cfFrom" list="locationList" value="'+escapeHtml(e.fromLabel||"")+'" placeholder="Position des Geräts" autofocus></div>' +
         '<div class="field-row">' +
           '<div class="field"><label for="cfBmkFrom">BMK an diesem Ende</label>' +
           '<input type="text" id="cfBmkFrom" value="'+escapeHtml(existing ? (e.bmkFrom||"") : bmkDefaults.from)+'" placeholder="z. B. K001-A"></div>' +
           '<div class="field"><label for="cfConnFrom">Stecker an diesem Ende</label>' +
           '<input type="text" id="cfConnFrom" list="connectorList" value="'+escapeHtml(e.connectorFrom||"")+'" placeholder="z. B. 4-pol Stecker"></div>' +
         '</div>' +
-        '<div class="field"><label for="cfTo">Nach / Ziel (z. B. Schaltschrank Wagen 3)</label>' +
-        '<input type="text" id="cfTo" value="'+escapeHtml(e.toLabel||"")+'" placeholder="Zielpunkt / Verteiler"></div>' +
+        '<div class="field"><label for="cfTo">Nach / Ziel (z. B. Ger&auml;tetr&auml;ger &ndash; WLAN Router)</label>' +
+        '<input type="text" id="cfTo" list="locationList" value="'+escapeHtml(e.toLabel||"")+'" placeholder="Zielpunkt / Verteiler"></div>' +
         '<div class="field-row">' +
           '<div class="field"><label for="cfBmkTo">BMK an diesem Ende</label>' +
           '<input type="text" id="cfBmkTo" value="'+escapeHtml(existing ? (e.bmkTo||"") : bmkDefaults.to)+'" placeholder="z. B. K001-E"></div>' +
           '<div class="field"><label for="cfConnTo">Stecker an diesem Ende</label>' +
           '<input type="text" id="cfConnTo" list="connectorList" value="'+escapeHtml(e.connectorTo||"")+'" placeholder="z. B. 8-pol Stecker"></div>' +
         '</div>' +
-        connectorDatalistHtml() +
+        connectorDatalistHtml() + locationDatalistHtml() +
         '<div class="field"><label for="cfCableType">Kabeltyp</label>' +
         '<select id="cfCableType">' + cableOptionsHtml(e.cableType||"cat7") + '</select></div>' +
         '<div class="field"><label for="cfTrasse">Kabeltrasse</label>' +
