@@ -172,7 +172,12 @@
   .stat .v{ font-family:"Barlow Condensed"; font-weight:700; font-size:26px; line-height:1.1; margin-top:2px; }
   .stat .v small{ font-size:13px; font-weight:600; color:var(--ink-soft); }
 
-  .chipbar{ display:flex; flex-wrap:wrap; gap:6px; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .chipbar{ display:flex; flex-wrap:wrap; gap:6px; padding:8px 14px; }
+  .aufmass-group{ border-bottom:1px solid var(--line); }
+  .aufmass-label{
+    padding:8px 14px 0; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--ink-soft); font-weight:600;
+  }
   .chip{
     display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:999px;
     font-size:11.5px; font-weight:600; background:var(--surface-2); color:var(--ink);
@@ -332,12 +337,20 @@
         </div>
       </div>
 
-      <div class="chipbar" id="typeChips"></div>
+      <div class="aufmass-group">
+        <div class="aufmass-label">Kabel je Typ (Meter, inkl. Reserve)</div>
+        <div class="chipbar" id="typeChips"></div>
+      </div>
+      <div class="aufmass-group">
+        <div class="aufmass-label">Steckverbinder je Typ (St&uuml;ck)</div>
+        <div class="chipbar" id="connectorChips"></div>
+      </div>
 
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
+              <th>BMK</th>
               <th>Von / Ger&auml;t</th>
               <th>Nach / Ziel</th>
               <th>Kabeltyp</th>
@@ -1083,6 +1096,8 @@
       '<h3>' + (existing ? "Kabel bearbeiten" : "Neues Kabel") + '</h3>' +
       '<div class="body">' +
         '<div id="cfReadoutWrap">' + readoutHtml() + '</div>' +
+        '<div class="field"><label for="cfBmk">BMK / Kabel-Nr. (auf Markern an beiden Enden)</label>' +
+        '<input type="text" id="cfBmk" value="'+escapeHtml(existing ? (e.bmk||"") : nextBmkSuggestion())+'" placeholder="z. B. K001"></div>' +
         '<div class="field-row">' +
           '<div class="field"><label for="cfDevice">Gerätetyp</label>' +
           '<select id="cfDevice">' + deviceOptionsHtml(e.deviceType||"afz") + '</select></div>' +
@@ -1116,6 +1131,7 @@
     byId("cfReserve").addEventListener("input", refreshReadout);
 
     function submit(){
+      var bmk = byId("cfBmk").value.trim();
       var deviceType = byId("cfDevice").value;
       var reservePct = parseFloat(byId("cfReserve").value) || 0;
       var fromLabel = byId("cfFrom").value.trim();
@@ -1130,12 +1146,12 @@
       if (!toLabel) toLabel = "Ziel unbenannt";
 
       if (existing){
-        existing.deviceType=deviceType; existing.reservePct=reservePct; existing.fromLabel=fromLabel;
+        existing.bmk=bmk; existing.deviceType=deviceType; existing.reservePct=reservePct; existing.fromLabel=fromLabel;
         existing.toLabel=toLabel; existing.cableType=cableType; existing.note=note; existing.trasseId=trasseId;
         existing.connectorFrom=connectorFrom; existing.connectorTo=connectorTo;
       } else {
         state.cables.push({
-          id: state.nextId++,
+          id: state.nextId++, bmk: bmk,
           deviceType: deviceType, fromLabel: fromLabel, toLabel: toLabel,
           cableType: cableType, reservePct: reservePct, note: note, trasseId: trasseId,
           connectorFrom: connectorFrom, connectorTo: connectorTo,
@@ -1154,9 +1170,17 @@
 
   // ---------- table / summary ----------
   var EXAMPLE_ROW = {
-    fromLabel:"AFZ Wagen 3, Deckenauslass", toLabel:"Schaltschrank Wagen 3",
+    bmk:"K001", fromLabel:"AFZ Wagen 3, Deckenauslass", toLabel:"Schaltschrank Wagen 3",
     cableType:"cat7", lengthDirect:8.4, lengthReserve:9.7, note:"Beispielzeile"
   };
+
+  function nextBmkSuggestion(){
+    var n = state.cables.length;
+    var used = {};
+    state.cables.forEach(function(c){ if (c.bmk) used[c.bmk]=true; });
+    do { n++; } while (used["K"+String(n).padStart(3,"0")]);
+    return "K" + String(n).padStart(3,"0");
+  }
 
   function renderTable(){
     var tbody = byId("cableTableBody");
@@ -1166,6 +1190,7 @@
     if (showExample){
       var info = cableTypeInfo(EXAMPLE_ROW.cableType);
       rows += '<tr class="example">' +
+        '<td class="mono">' + escapeHtml(EXAMPLE_ROW.bmk) + '</td>' +
         '<td>' + escapeHtml(EXAMPLE_ROW.fromLabel) + '<span class="example-badge">Beispiel</span></td>' +
         '<td>' + escapeHtml(EXAMPLE_ROW.toLabel) + '</td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
@@ -1180,6 +1205,7 @@
       var geo = computeCableGeometry(c);
       var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       rows += '<tr data-id="'+c.id+'" class="' + (c.id===state.hoverId?'hover-active':'') + '">' +
+        '<td class="mono">' + escapeHtml(c.bmk||"") + '</td>' +
         '<td><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
           '<div>' + escapeHtml(c.fromLabel) + '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · Stecker: '+escapeHtml(c.connectorFrom):'') + '</div></div>' +
         '</div></td>' +
@@ -1228,10 +1254,14 @@
     var count = state.cables.length;
     var totalDirect = 0, totalReserve = 0, anyLen=false;
     var byType = {};
+    var byConnector = {};
     state.cables.forEach(function(c){
       var geo = computeCableGeometry(c);
       if (geo.lengthReserve!=null){ totalDirect += geo.lengthDirect; totalReserve += geo.lengthReserve; anyLen=true; }
       byType[c.cableType] = (byType[c.cableType]||0) + (geo.lengthReserve||0);
+      [c.connectorFrom, c.connectorTo].forEach(function(conn){
+        if (conn) byConnector[conn] = (byConnector[conn]||0) + 1;
+      });
     });
     byId("statCount").textContent = count;
     byId("statDirect").innerHTML = anyLen ? fmt(totalDirect) + " <small>m</small>" : "–";
@@ -1244,6 +1274,15 @@
       chipbar.innerHTML = ids.map(function(id){
         var info = cableTypeInfo(id);
         return '<span class="chip"><span class="dot" style="background:'+info.color+'"></span>'+info.label+' <span class="mono">'+fmt(byType[id])+' m</span></span>';
+      }).join("");
+    }
+
+    var connChipbar = byId("connectorChips");
+    var connNames = Object.keys(byConnector).sort(function(a,b){ return a.localeCompare(b,"de"); });
+    if (!connNames.length){ connChipbar.innerHTML = '<span class="hint">Steckverbinder-Bedarf erscheint hier, sobald Stecker eingetragen sind.</span>'; }
+    else {
+      connChipbar.innerHTML = connNames.map(function(name){
+        return '<span class="chip">'+escapeHtml(name)+' <span class="mono">&times;'+byConnector[name]+'</span></span>';
       }).join("");
     }
   }
@@ -1280,17 +1319,35 @@
   }
 
   byId("btnExportCSV").addEventListener("click", function(){
-    var lines = [["Nr","Von / Gerät","Gerätetyp","Stecker Von","Nach / Ziel","Stecker Nach","Kabeltyp","Trasse","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Bemerkung"].join(";")];
+    var lines = [["Nr","BMK","Von / Gerät","Gerätetyp","Stecker Von","Nach / Ziel","Stecker Nach","Kabeltyp","Trasse","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Bemerkung"].join(";")];
     state.cables.forEach(function(c, idx){
       var geo = computeCableGeometry(c);
       var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       lines.push([
-        idx+1, csvEscape(c.fromLabel), csvEscape(deviceTypeLabel(c.deviceType)), csvEscape(c.connectorFrom||""),
+        idx+1, csvEscape(c.bmk||""), csvEscape(c.fromLabel), csvEscape(deviceTypeLabel(c.deviceType)), csvEscape(c.connectorFrom||""),
         csvEscape(c.toLabel), csvEscape(c.connectorTo||""),
         csvEscape(cableTypeInfo(c.cableType).label), csvEscape(trasse?trasse.name:""),
         geo.lengthDirect!=null?fmt(geo.lengthDirect):"", geo.lengthReserve!=null?fmt(geo.lengthReserve):"",
         c.reservePct, csvEscape(c.note||"")
       ].join(";"));
+    });
+
+    // Gesamt-Aufmaß als zweiter Block anhängen: Meter je Kabeltyp, Stück je Steckertyp.
+    var byType = {}, byConnector = {};
+    state.cables.forEach(function(c){
+      var g = computeCableGeometry(c);
+      if (g.lengthReserve!=null) byType[c.cableType] = (byType[c.cableType]||0) + g.lengthReserve;
+      [c.connectorFrom, c.connectorTo].forEach(function(conn){ if (conn) byConnector[conn] = (byConnector[conn]||0) + 1; });
+    });
+    lines.push("");
+    lines.push("Gesamt-Aufmaß Kabel (m, inkl. Reserve)");
+    Object.keys(byType).forEach(function(id){
+      lines.push([csvEscape(cableTypeInfo(id).label), fmt(byType[id])].join(";"));
+    });
+    lines.push("");
+    lines.push("Gesamt-Aufmaß Steckverbinder (Stück)");
+    Object.keys(byConnector).sort(function(a,b){ return a.localeCompare(b,"de"); }).forEach(function(name){
+      lines.push([csvEscape(name), byConnector[name]].join(";"));
     });
     var csv = "﻿" + lines.join("\r\n");
     var name = (state.planFileName ? state.planFileName.replace(/\.[a-zA-Z0-9]+$/,"") + "-" : "") + "kabelliste.csv";
