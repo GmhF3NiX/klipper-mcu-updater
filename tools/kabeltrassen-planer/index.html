@@ -178,6 +178,15 @@
     padding:8px 14px 0; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em;
     color:var(--ink-soft); font-weight:600;
   }
+  .weight-list{ display:flex; flex-direction:column; gap:6px; max-height:38vh; overflow-y:auto; }
+  .weight-row{ display:flex; align-items:center; gap:8px; }
+  .weight-row .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .weight-row .lbl{ flex:1; font-size:13px; min-width:0; }
+  .weight-row input{
+    width:80px; border:1px solid var(--line); background:var(--bg); color:var(--ink);
+    border-radius:7px; padding:6px 8px; text-align:right; flex:none;
+  }
+  .weight-row .unit{ font-size:11px; color:var(--ink-soft); width:26px; flex:none; }
   .chip{
     display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:999px;
     font-size:11.5px; font-weight:600; background:var(--surface-2); color:var(--ink);
@@ -278,6 +287,8 @@
       <button class="btn ghost" id="btnSaveProject" type="button">Projekt speichern</button>
       <button class="btn ghost" id="btnLoadProject" type="button">Projekt laden</button>
       <button class="btn ghost" id="btnExportCSV" type="button">CSV exportieren</button>
+      <span style="width:1px;background:var(--line);align-self:stretch;"></span>
+      <button class="btn ghost" id="btnGrundwerte" type="button">Grundwerte</button>
     </div>
     <input type="file" id="fileInputPlan" accept="image/*" class="visually-hidden">
     <input type="file" id="fileInputProject" accept="application/json,.json" class="visually-hidden">
@@ -350,6 +361,10 @@
         <div class="aufmass-label">Steckverbinder je Typ (St&uuml;ck)</div>
         <div class="chipbar" id="connectorChips"></div>
       </div>
+      <div class="aufmass-group">
+        <div class="aufmass-label">Gewicht je Wagen (f&uuml;r die Zulassung)</div>
+        <div class="chipbar" id="weightChips"></div>
+      </div>
 
       <div class="table-wrap">
         <table>
@@ -406,6 +421,7 @@
     "Geräteträger – WLAN Router", "Geräteträger – Switch", "Geräteträger – Roxtec Kabeldurchführung",
     "Geräteträger – Patchpanel", "Geräteträger – Netzteil", "Geräteträger – Klemmleiste"
   ];
+  var WAGEN_PRESETS = ["Wagen 1", "Wagen 2", "Wagen 3", "Wagen 4"];
   var CABLE_TYPES = [
     {id:"cat7", label:"Cat7 S/FTP", color:"#3B6FD6"},
     {id:"cat6a", label:"Cat6a", color:"#5B8DEF"},
@@ -461,7 +477,12 @@
     hoverId: null,
     nextId: 1,
     nextTrasseId: 1,
-    blinkId: null, blinkEnd: "from", blinkStart: 0, blinkRAF: null
+    blinkId: null, blinkEnd: "from", blinkStart: 0, blinkRAF: null,
+    // Grundwerte fürs Gesamtgewicht (Zulassungsunterlagen): Gramm je Meter
+    // Kabel (nach Kabeltyp) und Gramm je Stecker (nach Steckerbezeichnung).
+    // Alles 0 bis der Nutzer eigene Werte einträgt – wir erfinden keine
+    // Herstellerangaben.
+    cableWeightPerM: {}, connectorWeight: {}
   };
 
   // ---------- geometry helpers (also used for routing cables through a Trasse) ----------
@@ -519,6 +540,19 @@
     var lenD = state.scalePxPerM ? pxDist/state.scalePxPerM : null;
     var lenR = lenD!=null ? lenD * (1+(c.reservePct||0)/100) : null;
     return {path:path, pxDist:pxDist, lengthDirect:lenD, lengthReserve:lenR};
+  }
+
+  // Gewicht eines Kabels inkl. beider Steckverbinder, in Gramm. Nutzt die
+  // tatsächlich verbaute Länge (inkl. Reserve), da diese physisch verlegt
+  // wird. Fehlt ein Grundwert (0/nicht gepflegt), zählt der Anteil als 0 –
+  // kein Raten von Herstellerangaben.
+  function computeCableWeightGrams(c){
+    var geo = computeCableGeometry(c);
+    var lenM = geo.lengthReserve || 0;
+    var w = lenM * (state.cableWeightPerM[c.cableType] || 0);
+    if (c.connectorFrom) w += state.connectorWeight[c.connectorFrom] || 0;
+    if (c.connectorTo) w += state.connectorWeight[c.connectorTo] || 0;
+    return w;
   }
 
   // ---------- persistence (best effort, per-viewer convenience only) ----------
@@ -1153,6 +1187,66 @@
     }).join("") + '</datalist>';
   }
 
+  function wagenSuggestions(){
+    var set = {};
+    WAGEN_PRESETS.forEach(function(p){ set[p]=true; });
+    state.cables.forEach(function(c){ if (c.wagen) set[c.wagen]=true; });
+    return Object.keys(set).sort(function(a,b){ return a.localeCompare(b,"de",{numeric:true}); });
+  }
+  function wagenDatalistHtml(){
+    return '<datalist id="wagenList">' + wagenSuggestions().map(function(s){
+      return '<option value="'+escapeHtml(s)+'"></option>';
+    }).join("") + '</datalist>';
+  }
+
+  function openGrundwerteModal(){
+    var cableRows = CABLE_TYPES.map(function(ct){
+      var v = state.cableWeightPerM[ct.id];
+      return '<div class="weight-row"><span class="dot" style="background:'+ct.color+'"></span>' +
+        '<span class="lbl">'+escapeHtml(ct.label)+'</span>' +
+        '<input type="number" min="0" step="0.1" data-wtype="cable" data-key="'+ct.id+'" value="'+(v!=null?v:"")+'" placeholder="0">' +
+        '<span class="unit">g/m</span></div>';
+    }).join("");
+
+    var connectorNames = connectorSuggestions();
+    var connectorRows = connectorNames.length
+      ? connectorNames.map(function(name){
+          var v = state.connectorWeight[name];
+          return '<div class="weight-row"><span class="lbl">'+escapeHtml(name)+'</span>' +
+            '<input type="number" min="0" step="1" data-wtype="connector" data-key="'+escapeHtml(name)+'" value="'+(v!=null?v:"")+'" placeholder="0">' +
+            '<span class="unit">g</span></div>';
+        }).join("")
+      : '<p style="margin:0;color:var(--ink-soft);font-size:13px;">Noch keine Steckertypen im Projekt eingetragen – erst bei einem Kabel eintragen, dann hier bewertbar.</p>';
+
+    openModal(
+      '<h3>Grundwerte (Gewichte)</h3>' +
+      '<div class="body">' +
+        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Für das Gesamtgewicht je Wagen (z. B. für die Zulassung). Werte kommen von euch/Hersteller – leer gilt als 0.</p>' +
+        '<div><div class="aufmass-label" style="padding:0 0 4px;">Kabelgewicht je Meter</div>' +
+        '<div class="weight-list">' + cableRows + '</div></div>' +
+        '<div><div class="aufmass-label" style="padding:0 0 4px;">Steckergewicht je Stück</div>' +
+        '<div class="weight-list">' + connectorRows + '</div></div>' +
+      '</div>' +
+      '<div class="foot">' +
+        '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
+        '<button class="btn primary" id="mOk" type="button">Speichern</button>' +
+      '</div>'
+    );
+    byId("mOk").addEventListener("click", function(){
+      document.querySelectorAll('#modalHost input[data-wtype]').forEach(function(inp){
+        var val = parseFloat(inp.value);
+        var target = inp.getAttribute("data-wtype")==="cable" ? state.cableWeightPerM : state.connectorWeight;
+        var key = inp.getAttribute("data-key");
+        if (!isNaN(val) && val>0) target[key] = val; else delete target[key];
+      });
+      closeModal();
+      renderTable();
+      autosave();
+    });
+    byId("mCancel").addEventListener("click", closeModal);
+  }
+  byId("btnGrundwerte").addEventListener("click", openGrundwerteModal);
+
   function openCableModal(p1, p2, existing){
     var e = existing || {};
     var pt1 = p1 || {x:e.x1, y:e.y1};
@@ -1177,11 +1271,14 @@
       '<div class="body">' +
         '<div id="cfReadoutWrap">' + readoutHtml() + '</div>' +
         '<div class="field-row">' +
+          '<div class="field"><label for="cfWagen">Wagen</label>' +
+          '<input type="text" id="cfWagen" list="wagenList" value="'+escapeHtml(e.wagen||"")+'" placeholder="z. B. Wagen 3"></div>' +
           '<div class="field"><label for="cfDevice">Gerätetyp</label>' +
           '<select id="cfDevice">' + deviceOptionsHtml(e.deviceType||"afz") + '</select></div>' +
           '<div class="field"><label for="cfReserve">Reserve (%)</label>' +
           '<input type="number" id="cfReserve" min="0" max="100" step="1" value="'+reserve+'"></div>' +
         '</div>' +
+        wagenDatalistHtml() +
         '<div class="field"><label for="cfFrom">Von / Position (z. B. Wagen 3, Abteil 2, Deckenauslass)</label>' +
         '<input type="text" id="cfFrom" list="locationList" value="'+escapeHtml(e.fromLabel||"")+'" placeholder="Position des Geräts" autofocus></div>' +
         '<div class="field-row">' +
@@ -1217,6 +1314,7 @@
     byId("cfReserve").addEventListener("input", refreshReadout);
 
     function submit(){
+      var wagen = byId("cfWagen").value.trim();
       var bmkFrom = byId("cfBmkFrom").value.trim();
       var bmkTo = byId("cfBmkTo").value.trim();
       var deviceType = byId("cfDevice").value;
@@ -1233,12 +1331,12 @@
       if (!toLabel) toLabel = "Ziel unbenannt";
 
       if (existing){
-        existing.bmkFrom=bmkFrom; existing.bmkTo=bmkTo; existing.deviceType=deviceType; existing.reservePct=reservePct; existing.fromLabel=fromLabel;
+        existing.wagen=wagen; existing.bmkFrom=bmkFrom; existing.bmkTo=bmkTo; existing.deviceType=deviceType; existing.reservePct=reservePct; existing.fromLabel=fromLabel;
         existing.toLabel=toLabel; existing.cableType=cableType; existing.note=note; existing.trasseId=trasseId;
         existing.connectorFrom=connectorFrom; existing.connectorTo=connectorTo;
       } else {
         state.cables.push({
-          id: state.nextId++, bmkFrom: bmkFrom, bmkTo: bmkTo,
+          id: state.nextId++, wagen: wagen, bmkFrom: bmkFrom, bmkTo: bmkTo,
           deviceType: deviceType, fromLabel: fromLabel, toLabel: toLabel,
           cableType: cableType, reservePct: reservePct, note: note, trasseId: trasseId,
           connectorFrom: connectorFrom, connectorTo: connectorTo,
@@ -1302,7 +1400,7 @@
         '<td data-end="from"><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
           '<div>' + escapeHtml(c.fromLabel) +
             (c.bmkFrom? '<div class="bmk-tag">'+escapeHtml(c.bmkFrom)+'</div>':'') +
-            '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · Stecker: '+escapeHtml(c.connectorFrom):'') + '</div></div>' +
+            '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + (c.wagen? escapeHtml(c.wagen)+' · ':'') + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · Stecker: '+escapeHtml(c.connectorFrom):'') + '</div></div>' +
         '</div></td>' +
         '<td data-end="to">' + escapeHtml(c.toLabel) +
           (c.bmkTo? '<div class="bmk-tag">'+escapeHtml(c.bmkTo)+'</div>':'') +
@@ -1392,6 +1490,25 @@
         return '<span class="chip">'+escapeHtml(name)+' <span class="mono">&times;'+byConnector[name]+'</span></span>';
       }).join("");
     }
+
+    var byWagen = {}, totalWeightG = 0, anyWeightBase = Object.keys(state.cableWeightPerM).length || Object.keys(state.connectorWeight).length;
+    state.cables.forEach(function(c){
+      var g = computeCableWeightGrams(c);
+      totalWeightG += g;
+      var w = c.wagen || "ohne Wagen";
+      byWagen[w] = (byWagen[w]||0) + g;
+    });
+    var weightChipbar = byId("weightChips");
+    var wagenNames = Object.keys(byWagen).sort(function(a,b){ return a.localeCompare(b,"de",{numeric:true}); });
+    if (!anyWeightBase){
+      weightChipbar.innerHTML = '<span class="hint">Erst unter „Grundwerte“ Gewicht je Meter/Stecker eintragen.</span>';
+    } else if (!wagenNames.length){
+      weightChipbar.innerHTML = '<span class="hint">Gewicht je Wagen erscheint hier, sobald Kabel einem Wagen zugeordnet sind.</span>';
+    } else {
+      weightChipbar.innerHTML = wagenNames.map(function(w){
+        return '<span class="chip">'+escapeHtml(w)+' <span class="mono">'+fmt(byWagen[w]/1000)+' kg</span></span>';
+      }).join("") + '<span class="chip" style="font-weight:700;">Gesamt <span class="mono">'+fmt(totalWeightG/1000)+' kg</span></span>';
+    }
   }
 
   // ---------- export ----------
@@ -1426,25 +1543,29 @@
   }
 
   byId("btnExportCSV").addEventListener("click", function(){
-    var lines = [["Nr","Von / Gerät","BMK Von","Gerätetyp","Stecker Von","Nach / Ziel","BMK Nach","Stecker Nach","Kabeltyp","Trasse","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Bemerkung"].join(";")];
+    var lines = [["Nr","Wagen","Von / Gerät","BMK Von","Gerätetyp","Stecker Von","Nach / Ziel","BMK Nach","Stecker Nach","Kabeltyp","Trasse","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Gewicht (g)","Bemerkung"].join(";")];
     state.cables.forEach(function(c, idx){
       var geo = computeCableGeometry(c);
       var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       lines.push([
-        idx+1, csvEscape(c.fromLabel), csvEscape(c.bmkFrom||""), csvEscape(deviceTypeLabel(c.deviceType)), csvEscape(c.connectorFrom||""),
+        idx+1, csvEscape(c.wagen||""), csvEscape(c.fromLabel), csvEscape(c.bmkFrom||""), csvEscape(deviceTypeLabel(c.deviceType)), csvEscape(c.connectorFrom||""),
         csvEscape(c.toLabel), csvEscape(c.bmkTo||""), csvEscape(c.connectorTo||""),
         csvEscape(cableTypeInfo(c.cableType).label), csvEscape(trasse?trasse.name:""),
         geo.lengthDirect!=null?fmt(geo.lengthDirect):"", geo.lengthReserve!=null?fmt(geo.lengthReserve):"",
-        c.reservePct, csvEscape(c.note||"")
+        c.reservePct, fmt(computeCableWeightGrams(c)), csvEscape(c.note||"")
       ].join(";"));
     });
 
-    // Gesamt-Aufmaß als zweiter Block anhängen: Meter je Kabeltyp, Stück je Steckertyp.
-    var byType = {}, byConnector = {};
+    // Gesamt-Aufmaß als zweiter Block anhängen: Meter je Kabeltyp, Stück je Steckertyp, Gewicht je Wagen.
+    var byType = {}, byConnector = {}, byWagen = {}, totalWeightG = 0;
     state.cables.forEach(function(c){
       var g = computeCableGeometry(c);
       if (g.lengthReserve!=null) byType[c.cableType] = (byType[c.cableType]||0) + g.lengthReserve;
       [c.connectorFrom, c.connectorTo].forEach(function(conn){ if (conn) byConnector[conn] = (byConnector[conn]||0) + 1; });
+      var wg = computeCableWeightGrams(c);
+      totalWeightG += wg;
+      var w = c.wagen || "ohne Wagen";
+      byWagen[w] = (byWagen[w]||0) + wg;
     });
     lines.push("");
     lines.push("Gesamt-Aufmaß Kabel (m, inkl. Reserve)");
@@ -1456,6 +1577,12 @@
     Object.keys(byConnector).sort(function(a,b){ return a.localeCompare(b,"de"); }).forEach(function(name){
       lines.push([csvEscape(name), byConnector[name]].join(";"));
     });
+    lines.push("");
+    lines.push("Gesamt-Aufmaß Gewicht je Wagen (kg)");
+    Object.keys(byWagen).sort(function(a,b){ return a.localeCompare(b,"de",{numeric:true}); }).forEach(function(w){
+      lines.push([csvEscape(w), fmt(byWagen[w]/1000)].join(";"));
+    });
+    lines.push([csvEscape("Gesamt"), fmt(totalWeightG/1000)].join(";"));
     var csv = "﻿" + lines.join("\r\n");
     var name = (state.planFileName ? state.planFileName.replace(/\.[a-zA-Z0-9]+$/,"") + "-" : "") + "kabelliste.csv";
     saveFile(name, csv);
@@ -1466,7 +1593,8 @@
     return {
       version:2, planFileName: state.planFileName, imgDataURL: state.imgDataURL,
       scalePxPerM: state.scalePxPerM, cables: state.cables, nextId: state.nextId,
-      trassen: state.trassen, nextTrasseId: state.nextTrasseId
+      trassen: state.trassen, nextTrasseId: state.nextTrasseId,
+      cableWeightPerM: state.cableWeightPerM, connectorWeight: state.connectorWeight
     };
   }
   function restoreProject(payload, silent){
@@ -1475,6 +1603,8 @@
     state.trassen = payload.trassen || [];
     state.nextTrasseId = payload.nextTrasseId || (state.trassen.reduce(function(m,t){return Math.max(m,t.id);},0)+1);
     state.scalePxPerM = payload.scalePxPerM || null;
+    state.cableWeightPerM = payload.cableWeightPerM || {};
+    state.connectorWeight = payload.connectorWeight || {};
     updateScalePill();
     renderTrasseBar();
     if (payload.imgDataURL){
