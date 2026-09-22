@@ -192,13 +192,49 @@
     border-radius:7px; padding:6px 8px; text-align:right; flex:none;
   }
   .weight-row .unit{ font-size:11px; color:var(--ink-soft); width:26px; flex:none; }
+
+  .material-list{ display:flex; flex-direction:column; max-height:40vh; overflow-y:auto; }
+  .material-row{ padding:10px 2px; border-bottom:1px solid var(--line); display:flex; flex-direction:column; gap:7px; }
+  .material-row:last-child{ border-bottom:none; }
+  .material-row-top{ display:flex; align-items:center; gap:6px; font-weight:600; font-size:13px; }
+  .material-row-top .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .material-row-fields{ display:flex; gap:8px; }
+  .mini-field{ display:flex; flex-direction:column; gap:2px; }
+  .mini-field label{ font-size:9.5px; text-transform:uppercase; color:var(--ink-soft); letter-spacing:.04em; }
+  .mini-field input{
+    border:1px solid var(--line); background:var(--bg); color:var(--ink);
+    border-radius:6px; padding:5px 7px; font-size:12.5px;
+  }
+  .mini-field.w-num input{ width:64px; text-align:right; }
+  .mini-field.w-lager{ flex:1; min-width:0; }
+  .mini-field.w-lager input{ width:100%; }
+  .sticker-row{ display:flex; align-items:center; gap:8px; }
+  .sticker-thumb{
+    width:34px; height:34px; object-fit:cover; border-radius:6px;
+    border:1px solid var(--line); background:var(--surface-2); flex:none;
+  }
+  .sticker-btn{ font-size:11.5px; padding:5px 9px; position:relative; overflow:hidden; cursor:pointer; }
+  .sticker-btn input[type="file"]{
+    position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;
+  }
+  .sticker-remove{ padding:4px 6px; }
+
+  /* Sperrmodus: Bearbeiten ausgeblendet, reine Ansicht */
+  .locked-mode .row-actions{ display:none; }
+  .locked-mode .trasse-chip .x{ display:none; }
+  .lock-badge{
+    display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border-radius:999px;
+    background:var(--crit); color:#fff; font-size:11.5px; font-weight:700;
+  }
   .chip{
     display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:999px;
     font-size:11.5px; font-weight:600; background:var(--surface-2); color:var(--ink);
-    border:1px solid var(--line);
+    border:1px solid var(--line); appearance:none;
   }
   .chip .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
   .chip .mono{ color:var(--ink-soft); font-weight:500; }
+  button.chip{ cursor:pointer; }
+  button.chip:hover{ border-color:var(--accent); background:var(--accent-soft); }
 
   .table-wrap{ overflow-x:auto; }
   table{ width:100%; border-collapse:collapse; font-size:12.5px; }
@@ -314,6 +350,7 @@
         <h1>Kabeltrassen&#8209;Planer</h1>
         <div class="sub">Zugplan markieren &middot; Kabelliste erzeugen</div>
       </div>
+      <span class="lock-badge" id="lockBadge" hidden>Gesperrt &ndash; nur Ansicht</span>
     </div>
     <div class="toolbar">
       <button class="btn ghost" id="btnLoadPlan" type="button">Plan laden</button>
@@ -327,6 +364,9 @@
       <span style="width:1px;background:var(--line);align-self:stretch;"></span>
       <button class="btn ghost" id="btnGrundwerte" type="button">Grundwerte</button>
       <button class="btn ghost" id="btnGesamt" type="button">Gesamt&uuml;bersicht</button>
+      <span style="width:1px;background:var(--line);align-self:stretch;"></span>
+      <button class="btn ghost" id="btnLock" type="button">Sperren</button>
+      <button class="btn primary" id="btnUnlock" type="button" hidden>Entsperren</button>
     </div>
     <input type="file" id="fileInputPlan" accept="image/*" class="visually-hidden">
     <input type="file" id="fileInputProject" accept="application/json,.json" class="visually-hidden">
@@ -526,7 +566,15 @@
     // Kabel (nach Kabeltyp) und Gramm je Stecker (nach Steckerbezeichnung).
     // Alles 0 bis der Nutzer eigene Werte einträgt – wir erfinden keine
     // Herstellerangaben.
-    cableWeightPerM: {}, connectorWeight: {}
+    cableWeightPerM: {}, connectorWeight: {},
+    // Lagerplatz (Text) + Sticker-Foto (Data-URL) je Kabel-/Steckertyp, fürs
+    // Nachschlagen: "wo liegt das, wie sieht der Aufkleber aus".
+    cableLagerplatz: {}, cableSticker: {},
+    connectorLagerplatz: {}, connectorSticker: {},
+    // Admin-Sperre: nur ein Soft-Gate gegen versehentliches Ändern nach dem
+    // Einrichten (Client-seitiges JS ist nie wirklich sicher vor jemandem,
+    // der den Quelltext liest - das ersetzt keine echte Zugriffskontrolle).
+    locked: false, adminPinHash: null
   };
 
   // ---------- geometry helpers (also used for routing cables through a Trasse) ----------
@@ -1029,6 +1077,28 @@
     openTrasseModal(state.trassePoints.slice());
   });
 
+  // Sticker-Fotos verkleinern, bevor sie als Data-URL im Projekt landen -
+  // das sind Identifikationsfotos, keine Dokumentation, also reicht klein.
+  function readImageResized(file, maxDim, cb){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+        var w = Math.max(1, Math.round(img.naturalWidth*scale));
+        var h = Math.max(1, Math.round(img.naturalHeight*scale));
+        var c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        cb(c.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = function(){ cb(null); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function(){ cb(null); };
+    reader.readAsDataURL(file);
+  }
+
   // ---------- image loading ----------
   function loadImageFromDataURL(dataURL, name, cb, onError){
     var img = new Image();
@@ -1362,44 +1432,94 @@
   }
 
   function openGrundwerteModal(){
+    var pendingStickers = {}; // "mtype:key" -> dataURL | null(entfernt); fehlt = unveraendert
+
+    function stickerKey(mtype,key){ return mtype+":"+key; }
+    function currentSticker(mtype,key){
+      var k = stickerKey(mtype,key);
+      if (pendingStickers.hasOwnProperty(k)) return pendingStickers[k];
+      return (mtype==="cable"?state.cableSticker:state.connectorSticker)[key] || null;
+    }
+
+    function materialRowHtml(mtype, key, label, color, weightVal, unit, lagerVal){
+      var sticker = currentSticker(mtype, key);
+      return '<div class="material-row" data-mtype="'+mtype+'" data-mkey="'+escapeHtml(key)+'">' +
+        '<div class="material-row-top">' + (color? '<span class="dot" style="background:'+color+'"></span>':'') + '<span class="lbl">'+escapeHtml(label)+'</span></div>' +
+        '<div class="material-row-fields">' +
+          '<div class="mini-field w-num"><label>'+unit+'</label><input type="number" min="0" step="'+(unit==="g/m"?"0.1":"1")+'" class="w-weight" value="'+(weightVal!=null?weightVal:"")+'" placeholder="0"></div>' +
+          '<div class="mini-field w-lager"><label>Lagerplatz</label><input type="text" class="w-lager" value="'+escapeHtml(lagerVal||"")+'" placeholder="z. B. Regal 3, Fach B"></div>' +
+        '</div>' +
+        '<div class="sticker-row">' +
+          '<img class="sticker-thumb" src="'+(sticker||"")+'"'+(sticker?'':' hidden')+'>' +
+          '<label class="btn ghost sticker-btn">Sticker-Foto<input type="file" accept="image/*" class="sticker-input"></label>' +
+          '<button class="icon-btn sticker-remove" type="button" title="Bild entfernen" aria-label="Bild entfernen"'+(sticker?'':' hidden')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+        '</div>' +
+      '</div>';
+    }
+
     var cableRows = CABLE_TYPES.map(function(ct){
-      var v = state.cableWeightPerM[ct.id];
-      return '<div class="weight-row"><span class="dot" style="background:'+ct.color+'"></span>' +
-        '<span class="lbl">'+escapeHtml(ct.label)+'</span>' +
-        '<input type="number" min="0" step="0.1" data-wtype="cable" data-key="'+ct.id+'" value="'+(v!=null?v:"")+'" placeholder="0">' +
-        '<span class="unit">g/m</span></div>';
+      return materialRowHtml("cable", ct.id, ct.label, ct.color, state.cableWeightPerM[ct.id], "g/m", state.cableLagerplatz[ct.id]);
     }).join("");
 
     var connectorNames = connectorSuggestions();
     var connectorRows = connectorNames.length
       ? connectorNames.map(function(name){
-          var v = state.connectorWeight[name];
-          return '<div class="weight-row"><span class="lbl">'+escapeHtml(name)+'</span>' +
-            '<input type="number" min="0" step="1" data-wtype="connector" data-key="'+escapeHtml(name)+'" value="'+(v!=null?v:"")+'" placeholder="0">' +
-            '<span class="unit">g</span></div>';
+          return materialRowHtml("connector", name, name, null, state.connectorWeight[name], "g", state.connectorLagerplatz[name]);
         }).join("")
       : '<p style="margin:0;color:var(--ink-soft);font-size:13px;">Noch keine Steckertypen im Projekt eingetragen – erst bei einem Kabel eintragen, dann hier bewertbar.</p>';
 
     openModal(
-      '<h3>Grundwerte (Gewichte)</h3>' +
+      '<h3>Grundwerte</h3>' +
       '<div class="body">' +
-        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Für das Gesamtgewicht je Wagen (z. B. für die Zulassung). Werte kommen von euch/Hersteller – leer gilt als 0.</p>' +
-        '<div><div class="aufmass-label" style="padding:0 0 4px;">Kabelgewicht je Meter</div>' +
-        '<div class="weight-list">' + cableRows + '</div></div>' +
-        '<div><div class="aufmass-label" style="padding:0 0 4px;">Steckergewicht je Stück</div>' +
-        '<div class="weight-list">' + connectorRows + '</div></div>' +
+        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Gewicht (fürs Gesamtgewicht je Wagen), Lagerplatz und Sticker-Foto je Bauteil – nur zum Einrichten, danach über „Sperren“ schützbar.</p>' +
+        '<div><div class="aufmass-label" style="padding:0 0 4px;">Kabel</div>' +
+        '<div class="material-list">' + cableRows + '</div></div>' +
+        '<div><div class="aufmass-label" style="padding:0 0 4px;">Stecker</div>' +
+        '<div class="material-list">' + connectorRows + '</div></div>' +
       '</div>' +
       '<div class="foot">' +
         '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
         '<button class="btn primary" id="mOk" type="button">Speichern</button>' +
       '</div>'
     );
+
+    document.querySelectorAll("#modalHost .material-row").forEach(function(row){
+      var mtype = row.getAttribute("data-mtype"), key = row.getAttribute("data-mkey");
+      var fileInput = row.querySelector(".sticker-input");
+      var thumb = row.querySelector(".sticker-thumb");
+      var removeBtn = row.querySelector(".sticker-remove");
+      fileInput.addEventListener("change", function(){
+        var f = fileInput.files[0];
+        fileInput.value = "";
+        if (!f) return;
+        readImageResized(f, 320, function(dataUrl){
+          if (!dataUrl) return;
+          pendingStickers[stickerKey(mtype,key)] = dataUrl;
+          thumb.src = dataUrl; thumb.hidden = false;
+          removeBtn.hidden = false;
+        });
+      });
+      removeBtn.addEventListener("click", function(){
+        pendingStickers[stickerKey(mtype,key)] = null;
+        thumb.src = ""; thumb.hidden = true;
+        removeBtn.hidden = true;
+      });
+    });
+
     byId("mOk").addEventListener("click", function(){
-      document.querySelectorAll('#modalHost input[data-wtype]').forEach(function(inp){
-        var val = parseFloat(inp.value);
-        var target = inp.getAttribute("data-wtype")==="cable" ? state.cableWeightPerM : state.connectorWeight;
-        var key = inp.getAttribute("data-key");
-        if (!isNaN(val) && val>0) target[key] = val; else delete target[key];
+      document.querySelectorAll("#modalHost .material-row").forEach(function(row){
+        var mtype = row.getAttribute("data-mtype"), key = row.getAttribute("data-mkey");
+        var weightVal = parseFloat(row.querySelector("input.w-weight").value);
+        var lagerVal = row.querySelector("input.w-lager").value.trim();
+        var weightMap = mtype==="cable" ? state.cableWeightPerM : state.connectorWeight;
+        var lagerMap = mtype==="cable" ? state.cableLagerplatz : state.connectorLagerplatz;
+        var stickerMap = mtype==="cable" ? state.cableSticker : state.connectorSticker;
+        if (!isNaN(weightVal) && weightVal>0) weightMap[key]=weightVal; else delete weightMap[key];
+        if (lagerVal) lagerMap[key]=lagerVal; else delete lagerMap[key];
+        var pk = stickerKey(mtype,key);
+        if (pendingStickers.hasOwnProperty(pk)){
+          if (pendingStickers[pk]) stickerMap[key]=pendingStickers[pk]; else delete stickerMap[key];
+        }
       });
       closeModal();
       renderTable();
@@ -1408,6 +1528,41 @@
     byId("mCancel").addEventListener("click", closeModal);
   }
   byId("btnGrundwerte").addEventListener("click", openGrundwerteModal);
+
+  // Material-Infofenster: Sticker-Foto + Lagerplatz + Gewicht zu einem
+  // Kabel-/Steckertyp, aufgerufen per Klick auf einen Typ-Chip.
+  function openMaterialInfoModal(mtype, key, label){
+    var weightMap = mtype==="cable" ? state.cableWeightPerM : state.connectorWeight;
+    var lagerMap = mtype==="cable" ? state.cableLagerplatz : state.connectorLagerplatz;
+    var stickerMap = mtype==="cable" ? state.cableSticker : state.connectorSticker;
+    var weight = weightMap[key];
+    var lager = lagerMap[key];
+    var sticker = stickerMap[key];
+    openModal(
+      '<h3>' + escapeHtml(label) + '</h3>' +
+      '<div class="body">' +
+        (sticker
+          ? '<img src="'+sticker+'" alt="Sticker" style="width:100%;border-radius:8px;border:1px solid var(--line);display:block;">'
+          : '<div class="readout" style="color:var(--ink-soft);">Kein Sticker-Foto hinterlegt.</div>') +
+        '<div class="readout">Lagerplatz: <b>' + (lager? escapeHtml(lager) : '– nicht hinterlegt') + '</b></div>' +
+        '<div class="readout">Gewicht: <b>' + (weight!=null ? fmt(weight)+' '+(mtype==="cable"?"g/m":"g") : '– nicht hinterlegt') + '</b></div>' +
+      '</div>' +
+      '<div class="foot">' +
+        (state.locked? '' : '<button class="btn ghost" id="mEditGrundwerte" type="button">In Grundwerte bearbeiten</button>') +
+        '<button class="btn primary" id="mCancel" type="button">Schließen</button>' +
+      '</div>'
+    );
+    byId("mCancel").addEventListener("click", closeModal);
+    var editBtn = byId("mEditGrundwerte");
+    if (editBtn) editBtn.addEventListener("click", function(){ closeModal(); openGrundwerteModal(); });
+  }
+  function wireMaterialChips(root){
+    root.querySelectorAll(".chip[data-mtype]").forEach(function(el){
+      el.addEventListener("click", function(){
+        openMaterialInfoModal(el.getAttribute("data-mtype"), el.getAttribute("data-mkey"), el.getAttribute("data-mlabel"));
+      });
+    });
+  }
 
   // Gesamtübersicht: unabhängig vom Wagen-Filter immer der ganze Zug –
   // für die Materialbestellung, während man sonst Wagen für Wagen arbeitet.
@@ -1432,13 +1587,13 @@
     var typeChipsHtml = Object.keys(byType).length
       ? Object.keys(byType).map(function(id){
           var info=cableTypeInfo(id);
-          return '<span class="chip"><span class="dot" style="background:'+info.color+'"></span>'+info.label+' <span class="mono">'+fmt(byType[id])+' m</span></span>';
+          return '<button class="chip" type="button" data-mtype="cable" data-mkey="'+id+'" data-mlabel="'+escapeHtml(info.label)+'"><span class="dot" style="background:'+info.color+'"></span>'+info.label+' <span class="mono">'+fmt(byType[id])+' m</span></button>';
         }).join("")
       : '<span class="hint">Keine Kabel im Projekt.</span>';
 
     var connChipsHtml = Object.keys(byConnector).length
       ? Object.keys(byConnector).sort(function(a,b){return a.localeCompare(b,"de");}).map(function(name){
-          return '<span class="chip">'+escapeHtml(name)+' <span class="mono">&times;'+byConnector[name]+'</span></span>';
+          return '<button class="chip" type="button" data-mtype="connector" data-mkey="'+escapeHtml(name)+'" data-mlabel="'+escapeHtml(name)+'">'+escapeHtml(name)+' <span class="mono">&times;'+byConnector[name]+'</span></button>';
         }).join("")
       : '<span class="hint">Keine Steckertypen eingetragen.</span>';
 
@@ -1461,6 +1616,7 @@
         '<button class="btn ghost" id="mCancel" type="button">Schlie&szlig;en</button>' +
       '</div>'
     );
+    wireMaterialChips(byId("modalHost"));
     byId("mCancel").addEventListener("click", closeModal);
   }
   byId("btnGesamt").addEventListener("click", openGesamtuebersichtModal);
@@ -1707,8 +1863,9 @@
     else {
       chipbar.innerHTML = ids.map(function(id){
         var info = cableTypeInfo(id);
-        return '<span class="chip"><span class="dot" style="background:'+info.color+'"></span>'+info.label+' <span class="mono">'+fmt(byType[id])+' m</span></span>';
+        return '<button class="chip" type="button" data-mtype="cable" data-mkey="'+id+'" data-mlabel="'+escapeHtml(info.label)+'"><span class="dot" style="background:'+info.color+'"></span>'+info.label+' <span class="mono">'+fmt(byType[id])+' m</span></button>';
       }).join("");
+      wireMaterialChips(chipbar);
     }
 
     var connChipbar = byId("connectorChips");
@@ -1716,8 +1873,9 @@
     if (!connNames.length){ connChipbar.innerHTML = '<span class="hint">Steckverbinder-Bedarf erscheint hier, sobald Stecker eingetragen sind.</span>'; }
     else {
       connChipbar.innerHTML = connNames.map(function(name){
-        return '<span class="chip">'+escapeHtml(name)+' <span class="mono">&times;'+byConnector[name]+'</span></span>';
+        return '<button class="chip" type="button" data-mtype="connector" data-mkey="'+escapeHtml(name)+'" data-mlabel="'+escapeHtml(name)+'">'+escapeHtml(name)+' <span class="mono">&times;'+byConnector[name]+'</span></button>';
       }).join("");
+      wireMaterialChips(connChipbar);
     }
 
     var byWagen = {}, totalWeightG = 0, anyWeightBase = Object.keys(state.cableWeightPerM).length || Object.keys(state.connectorWeight).length;
@@ -1823,7 +1981,10 @@
       version:2, planFileName: state.planFileName, imgDataURL: state.imgDataURL,
       scalePxPerM: state.scalePxPerM, cables: state.cables, nextId: state.nextId,
       trassen: state.trassen, nextTrasseId: state.nextTrasseId,
-      cableWeightPerM: state.cableWeightPerM, connectorWeight: state.connectorWeight
+      cableWeightPerM: state.cableWeightPerM, connectorWeight: state.connectorWeight,
+      cableLagerplatz: state.cableLagerplatz, cableSticker: state.cableSticker,
+      connectorLagerplatz: state.connectorLagerplatz, connectorSticker: state.connectorSticker,
+      locked: state.locked, adminPinHash: state.adminPinHash
     };
   }
   function restoreProject(payload, silent){
@@ -1834,8 +1995,15 @@
     state.scalePxPerM = payload.scalePxPerM || null;
     state.cableWeightPerM = payload.cableWeightPerM || {};
     state.connectorWeight = payload.connectorWeight || {};
+    state.cableLagerplatz = payload.cableLagerplatz || {};
+    state.cableSticker = payload.cableSticker || {};
+    state.connectorLagerplatz = payload.connectorLagerplatz || {};
+    state.connectorSticker = payload.connectorSticker || {};
+    state.locked = payload.locked || false;
+    state.adminPinHash = payload.adminPinHash || null;
     updateScalePill();
     renderTrasseBar();
+    applyLockUI();
     if (payload.imgDataURL){
       loadImageFromDataURL(payload.imgDataURL, payload.planFileName, function(){
         renderTable(); redraw();
@@ -1868,9 +2036,108 @@
     reader.readAsText(file);
   });
 
+  // ---------- Admin-Sperre ----------
+  // Nur ein Soft-Gate gegen versehentliches Ändern im Alltag (auf der
+  // Anlage als reiner Installationsplan genutzt) - kein Ersatz für echte
+  // Zugriffskontrolle, da der komplette Quelltext im Browser liegt.
+  var WRITE_BUTTON_IDS = ["btnLoadPlan","btnCalibrate","btnNewTrasse","btnNewCable","btnGrundwerte","btnLoadProject"];
+
+  async function hashPin(pin){
+    if (window.crypto && window.crypto.subtle && window.isSecureContext){
+      try{
+        var enc = new TextEncoder().encode(pin);
+        var buf = await window.crypto.subtle.digest("SHA-256", enc);
+        return "sha256:" + Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2,"0"); }).join("");
+      }catch(e){ /* fall through to simple hash */ }
+    }
+    // Fallback ohne WebCrypto (z. B. lokale Datei ohne https): kein
+    // kryptografischer Standard, aber fürs Soft-Gate ausreichend.
+    var h = 5381;
+    for (var i=0;i<pin.length;i++){ h = ((h*33) ^ pin.charCodeAt(i)) >>> 0; }
+    return "simple:" + h.toString(16);
+  }
+
+  function applyLockUI(){
+    WRITE_BUTTON_IDS.forEach(function(id){ var el=byId(id); if (el) el.disabled = state.locked; });
+    document.body.classList.toggle("locked-mode", state.locked);
+    byId("lockBadge").hidden = !state.locked;
+    byId("btnLock").hidden = state.locked;
+    byId("btnUnlock").hidden = !state.locked;
+  }
+
+  function openSetPinModal(onDone){
+    openModal(
+      '<h3>Admin-PIN festlegen</h3>' +
+      '<div class="body">' +
+        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Diese PIN wird sp&auml;ter zum Entsperren gebraucht. Gut aufbewahren &ndash; sie l&auml;sst sich hier nicht zur&uuml;cksetzen.</p>' +
+        '<div class="field"><label for="pinNew">Neue PIN (mind. 4 Zeichen)</label><input type="password" id="pinNew" inputmode="numeric" autofocus></div>' +
+        '<div class="field"><label for="pinNew2">PIN best&auml;tigen</label><input type="password" id="pinNew2" inputmode="numeric"></div>' +
+        '<div id="pinError" class="readout" style="display:none;color:var(--crit);"></div>' +
+      '</div>' +
+      '<div class="foot">' +
+        '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
+        '<button class="btn primary" id="mOk" type="button">PIN setzen &amp; sperren</button>' +
+      '</div>'
+    );
+    function showErr(msg){ var el=byId("pinError"); el.textContent=msg; el.style.display="block"; }
+    byId("mOk").addEventListener("click", async function(){
+      var a = byId("pinNew").value, b = byId("pinNew2").value;
+      if (a.length<4){ showErr("Mindestens 4 Zeichen."); return; }
+      if (a!==b){ showErr("PINs stimmen nicht überein."); return; }
+      state.adminPinHash = await hashPin(a);
+      closeModal();
+      onDone();
+    });
+    byId("mCancel").addEventListener("click", closeModal);
+  }
+
+  function openUnlockModal(){
+    openModal(
+      '<h3>Entsperren</h3>' +
+      '<div class="body">' +
+        '<div class="field"><label for="pinCheck">Admin-PIN</label><input type="password" id="pinCheck" inputmode="numeric" autofocus></div>' +
+        '<div id="pinError" class="readout" style="display:none;color:var(--crit);"></div>' +
+      '</div>' +
+      '<div class="foot">' +
+        '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
+        '<button class="btn primary" id="mOk" type="button">Entsperren</button>' +
+      '</div>'
+    );
+    function showErr(msg){ var el=byId("pinError"); el.textContent=msg; el.style.display="block"; }
+    var input = byId("pinCheck");
+    async function submit(){
+      var hash = await hashPin(input.value);
+      if (hash === state.adminPinHash){
+        state.locked = false;
+        closeModal();
+        applyLockUI();
+        autosave();
+      } else {
+        showErr("Falsche PIN.");
+      }
+    }
+    input.addEventListener("keydown", function(e){ if (e.key==="Enter") submit(); });
+    byId("mOk").addEventListener("click", submit);
+    byId("mCancel").addEventListener("click", closeModal);
+  }
+
+  byId("btnLock").addEventListener("click", function(){
+    function lockNow(){
+      state.locked = true;
+      cancelMode();
+      hidePlanPopover();
+      applyLockUI();
+      autosave();
+    }
+    if (!state.adminPinHash){ openSetPinModal(lockNow); }
+    else { lockNow(); }
+  });
+  byId("btnUnlock").addEventListener("click", openUnlockModal);
+
   // ---------- init ----------
   updateModeHint();
   updateScalePill();
+  applyLockUI();
   renderTrasseBar();
   renderTable();
   tryAutoload();
