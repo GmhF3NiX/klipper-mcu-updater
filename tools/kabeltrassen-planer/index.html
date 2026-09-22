@@ -254,9 +254,14 @@
     border-radius:5px; padding:1px 5px; flex:none;
   }
   .bmk-tag{
-    display:inline-block; font-family:"IBM Plex Mono"; font-weight:600; font-size:11px;
-    color:var(--accent); margin-top:2px;
+    display:inline-flex; align-items:center; gap:4px; vertical-align:middle;
+    font-family:"IBM Plex Mono"; font-weight:700; font-size:11px; letter-spacing:.02em;
+    color:var(--ink); background:var(--surface);
+    border:1.5px solid var(--accent); border-radius:4px;
+    padding:1px 6px 2px; white-space:nowrap;
   }
+  .bmk-tag svg{ width:10px; height:10px; flex:none; color:var(--accent); }
+  .bmk-tag-row{ margin-top:3px; }
   .cell-len{ font-family:"IBM Plex Mono"; white-space:nowrap; }
 
   .plan-popover{
@@ -545,6 +550,14 @@
     return String(s==null?"":s).replace(/[&<>"']/g, function(c){
       return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
     });
+  }
+  // BMK/Kabelmarker-Beschriftung als eigenes, klar erkennbares Symbol statt
+  // schlichtem Text - macht sichtbar, dass das die Aufschrift ist, die auf
+  // den physischen Kabelmarker an diesem Ende kommt.
+  function bmkTagHtml(text){
+    return '<span class="bmk-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+      '<path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24L4 3a1 1 0 0 0-1 1l.24 5.59a2 2 0 0 0 .59 1.41l9.59 9.58a2 2 0 0 0 2.83 0l4.24-4.24a2 2 0 0 0 0-2.83z"/>' +
+      '<circle cx="7.5" cy="7.5" r="1.4" fill="currentColor" stroke="none"/></svg>' + escapeHtml(text) + '</span>';
   }
 
   var state = {
@@ -989,7 +1002,7 @@
       return '<button class="popover-item" data-id="'+c.id+'" type="button">' +
         '<span class="dot" style="background:'+info.color+'"></span>' +
         '<span class="popover-item-text"><b>'+escapeHtml(label)+'</b>' +
-          (bmk? ' <span class="bmk-tag" style="margin:0;">'+escapeHtml(bmk)+'</span>' : '') +
+          (bmk? ' ' + bmkTagHtml(bmk) : '') +
           '<br><span class="popover-sub">'+info.label + (conn? ' · Stecker: '+escapeHtml(conn):'') + (c.wagen? ' · '+escapeHtml(c.wagen):'') + '</span>' +
         '</span></button>';
     }).join("");
@@ -1759,8 +1772,8 @@
       var info = cableTypeInfo(EXAMPLE_ROW.cableType);
       rows += '<tr class="example">' +
         '<td>' + escapeHtml(EXAMPLE_ROW.fromLabel) + '<span class="example-badge">Beispiel</span>' +
-          '<div class="bmk-tag">' + escapeHtml(EXAMPLE_ROW.bmkFrom) + '</div></td>' +
-        '<td>' + escapeHtml(EXAMPLE_ROW.toLabel) + '<div class="bmk-tag">' + escapeHtml(EXAMPLE_ROW.bmkTo) + '</div></td>' +
+          '<div class="bmk-tag-row">' + bmkTagHtml(EXAMPLE_ROW.bmkFrom) + '</div></td>' +
+        '<td>' + escapeHtml(EXAMPLE_ROW.toLabel) + '<div class="bmk-tag-row">' + bmkTagHtml(EXAMPLE_ROW.bmkTo) + '</div></td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
         '<td class="cell-len">' + fmt(EXAMPLE_ROW.lengthReserve) + ' m<span class="r">' + fmt(EXAMPLE_ROW.lengthDirect) + ' m direkt</span></td>' +
         '<td>' + escapeHtml(EXAMPLE_ROW.note) + '</td>' +
@@ -1775,11 +1788,11 @@
       rows += '<tr data-id="'+c.id+'" class="' + (c.id===state.hoverId?'hover-active':'') + '">' +
         '<td data-end="from"><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
           '<div>' + escapeHtml(c.fromLabel) +
-            (c.bmkFrom? '<div class="bmk-tag">'+escapeHtml(c.bmkFrom)+'</div>':'') +
+            (c.bmkFrom? '<div class="bmk-tag-row">'+bmkTagHtml(c.bmkFrom)+'</div>':'') +
             '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + (c.wagen? escapeHtml(c.wagen)+' · ':'') + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · Stecker: '+escapeHtml(c.connectorFrom):'') + '</div></div>' +
         '</div></td>' +
         '<td data-end="to">' + escapeHtml(c.toLabel) +
-          (c.bmkTo? '<div class="bmk-tag">'+escapeHtml(c.bmkTo)+'</div>':'') +
+          (c.bmkTo? '<div class="bmk-tag-row">'+bmkTagHtml(c.bmkTo)+'</div>':'') +
           (c.connectorTo? '<div class="r" style="color:var(--ink-soft);font-size:11px;">Stecker: '+escapeHtml(c.connectorTo)+'</div>':'') + '</td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
         '<td class="cell-len">' + (geo.lengthReserve!=null? fmt(geo.lengthReserve)+' m' : '–') +
