@@ -606,9 +606,12 @@
     // Nachschlagen: "wo liegt das, wie sieht der Aufkleber aus".
     cableLagerplatz: {}, cableSticker: {},
     connectorLagerplatz: {}, connectorSticker: {},
-    // Anschlussplan/Montagebild je Stecker: wie weit abisolieren, wie den
-    // Stecker zusammenbauen/anklemmen - eigenes Bild neben dem Sticker.
-    connectorWiring: {},
+    // Artikel-Nr. je Stecker (steht mit auf dem Lager-Sticker).
+    connectorArtikelnummer: {},
+    // Montage-/Abisolierbild (wie das Kabel abisolieren & den Stecker
+    // zusammenbauen) und Schaltplan (Pinbelegung/Anschlussbelegung) je
+    // Stecker - zwei eigene Bilder neben dem Sticker.
+    connectorAssembly: {}, connectorSchaltplan: {},
     // Admin-Sperre: nur ein Soft-Gate gegen versehentliches Ändern nach dem
     // Einrichten (Client-seitiges JS ist nie wirklich sicher vor jemandem,
     // der den Quelltext liest - das ersetzt keine echte Zugriffskontrolle).
@@ -1561,12 +1564,21 @@
   function openGrundwerteModal(){
     var pendingImages = {}; // "mtype:key:kind" -> dataURL | null(entfernt); fehlt = unveraendert
 
+    var IMAGE_MAPS = {
+      sticker: null, // pro mtype unterschiedlich, siehe imageMapFor()
+      assembly: "connectorAssembly",
+      schaltplan: "connectorSchaltplan"
+    };
+    function imageMapFor(mtype, kind){
+      if (kind==="sticker") return mtype==="cable" ? state.cableSticker : state.connectorSticker;
+      return state[IMAGE_MAPS[kind]];
+    }
+
     function imgKey(mtype,key,kind){ return mtype+":"+key+":"+kind; }
     function currentImage(mtype,key,kind){
       var k = imgKey(mtype,key,kind);
       if (pendingImages.hasOwnProperty(k)) return pendingImages[k];
-      var map = kind==="wiring" ? state.connectorWiring : (mtype==="cable" ? state.cableSticker : state.connectorSticker);
-      return map[key] || null;
+      return imageMapFor(mtype,kind)[key] || null;
     }
 
     function imageRowHtml(mtype, key, kind, label){
@@ -1578,33 +1590,39 @@
       '</div>';
     }
 
-    function materialRowHtml(mtype, key, label, color, weightVal, unit, lagerVal, withWiring){
+    function materialRowHtml(mtype, key, label, color, weightVal, unit, lagerVal, artikelVal, imageKinds){
       return '<div class="material-row" data-mtype="'+mtype+'" data-mkey="'+escapeHtml(key)+'">' +
         '<div class="material-row-top">' + (color? '<span class="dot" style="background:'+color+'"></span>':'') + '<span class="lbl">'+escapeHtml(label)+'</span></div>' +
         '<div class="material-row-fields">' +
           '<div class="mini-field w-num"><label>'+unit+'</label><input type="number" min="0" step="'+(unit==="g/m"?"0.1":"1")+'" class="w-weight" value="'+(weightVal!=null?weightVal:"")+'" placeholder="0"></div>' +
           '<div class="mini-field w-lager"><label>Lagerplatz</label><input type="text" class="w-lager" value="'+escapeHtml(lagerVal||"")+'" placeholder="z. B. Regal 3, Fach B"></div>' +
+          (mtype==="connector" ? '<div class="mini-field w-lager"><label>Artikel-Nr.</label><input type="text" class="w-artikel" value="'+escapeHtml(artikelVal||"")+'" placeholder="z. B. 123-456"></div>' : '') +
         '</div>' +
-        imageRowHtml(mtype, key, "sticker", "Sticker-Foto") +
-        (withWiring ? imageRowHtml(mtype, key, "wiring", "Anschluss-/Montagebild") : '') +
+        imageKinds.map(function(ik){ return imageRowHtml(mtype, key, ik.kind, ik.label); }).join("") +
       '</div>';
     }
 
     var cableRows = CABLE_TYPES.map(function(ct){
-      return materialRowHtml("cable", ct.id, ct.label, ct.color, state.cableWeightPerM[ct.id], "g/m", state.cableLagerplatz[ct.id], false);
+      return materialRowHtml("cable", ct.id, ct.label, ct.color, state.cableWeightPerM[ct.id], "g/m", state.cableLagerplatz[ct.id], undefined,
+        [{kind:"sticker", label:"Sticker-Foto"}]);
     }).join("");
 
     var connectorNames = connectorSuggestions();
     var connectorRows = connectorNames.length
       ? connectorNames.map(function(name){
-          return materialRowHtml("connector", name, name, null, state.connectorWeight[name], "g", state.connectorLagerplatz[name], true);
+          return materialRowHtml("connector", name, name, null, state.connectorWeight[name], "g", state.connectorLagerplatz[name], state.connectorArtikelnummer[name],
+            [
+              {kind:"sticker", label:"Sticker-Foto (Lager + Artikel-Nr.)"},
+              {kind:"assembly", label:"Montage-/Abisolierbild"},
+              {kind:"schaltplan", label:"Schaltplan / Anschlussbelegung"}
+            ]);
         }).join("")
       : '<p style="margin:0;color:var(--ink-soft);font-size:13px;">Noch keine Steckertypen im Projekt eingetragen – erst bei einem Kabel eintragen, dann hier bewertbar.</p>';
 
     openModal(
       '<h3>Grundwerte</h3>' +
       '<div class="body">' +
-        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Gewicht (fürs Gesamtgewicht je Wagen), Lagerplatz, Sticker-Foto und beim Stecker zusätzlich ein Anschluss-/Montagebild (Abisolierlänge, Zusammenbau) – nur zum Einrichten, danach über „Sperren“ schützbar.</p>' +
+        '<p style="margin:0;color:var(--ink-soft);font-size:12.5px;">Gewicht (fürs Gesamtgewicht je Wagen), Lagerplatz und Sticker-Foto je Bauteil – beim Stecker zusätzlich Artikel-Nr., ein Montage-/Abisolierbild und ein Schaltplan (Anschlussbelegung) – nur zum Einrichten, danach über „Sperren“ schützbar.</p>' +
         '<div><div class="aufmass-label" style="padding:0 0 4px;">Kabel</div>' +
         '<div class="material-list">' + cableRows + '</div></div>' +
         '<div><div class="aufmass-label" style="padding:0 0 4px;">Stecker</div>' +
@@ -1625,7 +1643,7 @@
         var f = fileInput.files[0];
         fileInput.value = "";
         if (!f) return;
-        readImageResized(f, kind==="wiring" ? 900 : 320, function(dataUrl){
+        readImageResized(f, kind==="sticker" ? 320 : 900, function(dataUrl){
           if (!dataUrl) return;
           pendingImages[imgKey(mtype,key,kind)] = dataUrl;
           thumb.src = dataUrl; thumb.hidden = false;
@@ -1648,12 +1666,17 @@
         var lagerMap = mtype==="cable" ? state.cableLagerplatz : state.connectorLagerplatz;
         if (!isNaN(weightVal) && weightVal>0) weightMap[key]=weightVal; else delete weightMap[key];
         if (lagerVal) lagerMap[key]=lagerVal; else delete lagerMap[key];
+        if (mtype==="connector"){
+          var artikelInput = row.querySelector("input.w-artikel");
+          var artikelVal = artikelInput ? artikelInput.value.trim() : "";
+          if (artikelVal) state.connectorArtikelnummer[key]=artikelVal; else delete state.connectorArtikelnummer[key];
+        }
       });
       document.querySelectorAll("#modalHost .sticker-row").forEach(function(row){
         var mtype = row.getAttribute("data-mtype"), key = row.getAttribute("data-mkey"), kind = row.getAttribute("data-kind");
         var pk = imgKey(mtype,key,kind);
         if (!pendingImages.hasOwnProperty(pk)) return;
-        var map = kind==="wiring" ? state.connectorWiring : (mtype==="cable" ? state.cableSticker : state.connectorSticker);
+        var map = imageMapFor(mtype,kind);
         if (pendingImages[pk]) map[key]=pendingImages[pk]; else delete map[key];
       });
       closeModal();
@@ -1665,8 +1688,9 @@
   byId("btnGrundwerte").addEventListener("click", openGrundwerteModal);
 
   // Material-Infofenster: Sticker-Foto + Lagerplatz + Gewicht (+ beim
-  // Stecker: Anschluss-/Montagebild) zu einem Kabel-/Steckertyp, aufgerufen
-  // per Klick auf einen Typ-Chip oder auf "Stecker: X" in der Kabelliste.
+  // Stecker: Artikel-Nr., Schaltplan und Montage-/Abisolierbild) zu einem
+  // Kabel-/Steckertyp, aufgerufen per Klick auf einen Typ-Chip oder auf
+  // "Stecker: X" in der Kabelliste.
   function openMaterialInfoModal(mtype, key, label){
     var weightMap = mtype==="cable" ? state.cableWeightPerM : state.connectorWeight;
     var lagerMap = mtype==="cable" ? state.cableLagerplatz : state.connectorLagerplatz;
@@ -1674,18 +1698,22 @@
     var weight = weightMap[key];
     var lager = lagerMap[key];
     var sticker = stickerMap[key];
-    var wiring = mtype==="connector" ? state.connectorWiring[key] : null;
+    var artikel = mtype==="connector" ? state.connectorArtikelnummer[key] : null;
+    var schaltplan = mtype==="connector" ? state.connectorSchaltplan[key] : null;
+    var assembly = mtype==="connector" ? state.connectorAssembly[key] : null;
+    function imgBlock(label, src){
+      return '<div><div class="aufmass-label" style="padding:0 0 4px;">'+escapeHtml(label)+'</div>' +
+        '<img src="'+src+'" alt="'+escapeHtml(label)+'" style="width:100%;border-radius:8px;border:1px solid var(--line);display:block;"></div>';
+    }
+    var anyImage = schaltplan || assembly || sticker;
     openModal(
       '<h3>' + escapeHtml(label) + '</h3>' +
       '<div class="body">' +
-        (wiring
-          ? '<div><div class="aufmass-label" style="padding:0 0 4px;">Anschluss / Montage – abisolieren &amp; zusammenbauen</div>' +
-            '<img src="'+wiring+'" alt="Anschlussplan" style="width:100%;border-radius:8px;border:1px solid var(--line);display:block;"></div>'
-          : '') +
-        (sticker
-          ? '<div><div class="aufmass-label" style="padding:0 0 4px;">Sticker (Lager-Identifikation)</div>' +
-            '<img src="'+sticker+'" alt="Sticker" style="width:100%;border-radius:8px;border:1px solid var(--line);display:block;"></div>'
-          : (wiring ? '' : '<div class="readout" style="color:var(--ink-soft);">Kein Sticker-Foto hinterlegt.</div>')) +
+        (schaltplan ? imgBlock("Schaltplan / Anschlussbelegung", schaltplan) : '') +
+        (assembly ? imgBlock("Montage / Abisolieren – wie zusammenbauen", assembly) : '') +
+        (sticker ? imgBlock("Sticker (Lager-Identifikation)", sticker) : '') +
+        (anyImage ? '' : '<div class="readout" style="color:var(--ink-soft);">Kein Sticker-Foto hinterlegt.</div>') +
+        (mtype==="connector" ? '<div class="readout">Artikel-Nr.: <b>' + (artikel? escapeHtml(artikel) : '– nicht hinterlegt') + '</b></div>' : '') +
         '<div class="readout">Lagerplatz: <b>' + (lager? escapeHtml(lager) : '– nicht hinterlegt') + '</b></div>' +
         '<div class="readout">Gewicht: <b>' + (weight!=null ? fmt(weight)+' '+(mtype==="cable"?"g/m":"g") : '– nicht hinterlegt') + '</b></div>' +
       '</div>' +
@@ -2126,7 +2154,8 @@
       cableWeightPerM: state.cableWeightPerM, connectorWeight: state.connectorWeight,
       cableLagerplatz: state.cableLagerplatz, cableSticker: state.cableSticker,
       connectorLagerplatz: state.connectorLagerplatz, connectorSticker: state.connectorSticker,
-      connectorWiring: state.connectorWiring,
+      connectorArtikelnummer: state.connectorArtikelnummer,
+      connectorAssembly: state.connectorAssembly, connectorSchaltplan: state.connectorSchaltplan,
       locked: state.locked, adminPinHash: state.adminPinHash
     };
   }
@@ -2142,7 +2171,11 @@
     state.cableSticker = payload.cableSticker || {};
     state.connectorLagerplatz = payload.connectorLagerplatz || {};
     state.connectorSticker = payload.connectorSticker || {};
-    state.connectorWiring = payload.connectorWiring || {};
+    state.connectorArtikelnummer = payload.connectorArtikelnummer || {};
+    // Alte Projekte kannten nur ein gemeinsames "connectorWiring"-Bild -
+    // das wandert beim Laden ins neue Montage-/Abisolierbild.
+    state.connectorAssembly = payload.connectorAssembly || payload.connectorWiring || {};
+    state.connectorSchaltplan = payload.connectorSchaltplan || {};
     state.locked = payload.locked || false;
     state.adminPinHash = payload.adminPinHash || null;
     updateScalePill();
