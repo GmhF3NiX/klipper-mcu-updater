@@ -376,7 +376,11 @@
     {id:"kamera", label:"Kamera"},
     {id:"wlan", label:"WLAN Access Point"},
     {id:"pa", label:"Lautsprecher / PA"},
+    {id:"buehne", label:"Bühne"},
     {id:"sonstige", label:"Sonstiges"}
+  ];
+  var CONNECTOR_PRESETS = [
+    "4-pol Stecker", "5-pol Stecker", "8-pol Stecker", "RJ45", "M12 Stecker", "CEE-Stecker", "Schuko-Stecker", "Klemme"
   ];
   var CABLE_TYPES = [
     {id:"cat7", label:"Cat7 S/FTP", color:"#3B6FD6"},
@@ -1025,6 +1029,24 @@
     return html;
   }
 
+  // Steckertypen: feste Vorschläge + alles, was im Projekt schon einmal
+  // eingetragen wurde – so wachsen die Vorschläge organisch mit, ohne dass
+  // die Liste im Code gepflegt werden muss.
+  function connectorSuggestions(){
+    var set = {};
+    CONNECTOR_PRESETS.forEach(function(p){ set[p]=true; });
+    state.cables.forEach(function(c){
+      if (c.connectorFrom) set[c.connectorFrom]=true;
+      if (c.connectorTo) set[c.connectorTo]=true;
+    });
+    return Object.keys(set).sort(function(a,b){ return a.localeCompare(b,"de"); });
+  }
+  function connectorDatalistHtml(){
+    return '<datalist id="connectorList">' + connectorSuggestions().map(function(s){
+      return '<option value="'+escapeHtml(s)+'"></option>';
+    }).join("") + '</datalist>';
+  }
+
   function openCableModal(p1, p2, existing){
     var e = existing || {};
     var pt1 = p1 || {x:e.x1, y:e.y1};
@@ -1055,8 +1077,13 @@
         '</div>' +
         '<div class="field"><label for="cfFrom">Von / Position (z. B. Wagen 3, Abteil 2, Deckenauslass)</label>' +
         '<input type="text" id="cfFrom" value="'+escapeHtml(e.fromLabel||"")+'" placeholder="Position des Geräts" autofocus></div>' +
+        '<div class="field"><label for="cfConnFrom">Stecker an diesem Ende (optional)</label>' +
+        '<input type="text" id="cfConnFrom" list="connectorList" value="'+escapeHtml(e.connectorFrom||"")+'" placeholder="z. B. 4-pol Stecker"></div>' +
         '<div class="field"><label for="cfTo">Nach / Ziel (z. B. Schaltschrank Wagen 3)</label>' +
         '<input type="text" id="cfTo" value="'+escapeHtml(e.toLabel||"")+'" placeholder="Zielpunkt / Verteiler"></div>' +
+        '<div class="field"><label for="cfConnTo">Stecker an diesem Ende (optional)</label>' +
+        '<input type="text" id="cfConnTo" list="connectorList" value="'+escapeHtml(e.connectorTo||"")+'" placeholder="z. B. 8-pol Stecker"></div>' +
+        connectorDatalistHtml() +
         '<div class="field"><label for="cfCableType">Kabeltyp</label>' +
         '<select id="cfCableType">' + cableOptionsHtml(e.cableType||"cat7") + '</select></div>' +
         '<div class="field"><label for="cfTrasse">Kabeltrasse</label>' +
@@ -1079,6 +1106,8 @@
       var reservePct = parseFloat(byId("cfReserve").value) || 0;
       var fromLabel = byId("cfFrom").value.trim();
       var toLabel = byId("cfTo").value.trim();
+      var connectorFrom = byId("cfConnFrom").value.trim();
+      var connectorTo = byId("cfConnTo").value.trim();
       var cableType = byId("cfCableType").value;
       var trasseVal = byId("cfTrasse").value;
       var trasseId = trasseVal ? parseFloat(trasseVal) : null;
@@ -1089,11 +1118,13 @@
       if (existing){
         existing.deviceType=deviceType; existing.reservePct=reservePct; existing.fromLabel=fromLabel;
         existing.toLabel=toLabel; existing.cableType=cableType; existing.note=note; existing.trasseId=trasseId;
+        existing.connectorFrom=connectorFrom; existing.connectorTo=connectorTo;
       } else {
         state.cables.push({
           id: state.nextId++,
           deviceType: deviceType, fromLabel: fromLabel, toLabel: toLabel,
           cableType: cableType, reservePct: reservePct, note: note, trasseId: trasseId,
+          connectorFrom: connectorFrom, connectorTo: connectorTo,
           x1:pt1.x, y1:pt1.y, x2:pt2.x, y2:pt2.y
         });
       }
@@ -1136,9 +1167,9 @@
       var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       rows += '<tr data-id="'+c.id+'" class="' + (c.id===state.hoverId?'hover-active':'') + '">' +
         '<td><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
-          '<div>' + escapeHtml(c.fromLabel) + '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + '</div></div>' +
+          '<div>' + escapeHtml(c.fromLabel) + '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · Stecker: '+escapeHtml(c.connectorFrom):'') + '</div></div>' +
         '</div></td>' +
-        '<td>' + escapeHtml(c.toLabel) + '</td>' +
+        '<td>' + escapeHtml(c.toLabel) + (c.connectorTo? '<div class="r" style="color:var(--ink-soft);font-size:11px;">Stecker: '+escapeHtml(c.connectorTo)+'</div>':'') + '</td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
         '<td class="cell-len">' + (geo.lengthReserve!=null? fmt(geo.lengthReserve)+' m' : '–') +
           (geo.lengthDirect!=null? '<span class="r">'+fmt(geo.lengthDirect)+' m direkt · +'+c.reservePct+'%</span>':'') + '</td>' +
@@ -1235,12 +1266,13 @@
   }
 
   byId("btnExportCSV").addEventListener("click", function(){
-    var lines = [["Nr","Von / Gerät","Gerätetyp","Nach / Ziel","Kabeltyp","Trasse","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Bemerkung"].join(";")];
+    var lines = [["Nr","Von / Gerät","Gerätetyp","Stecker Von","Nach / Ziel","Stecker Nach","Kabeltyp","Trasse","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Bemerkung"].join(";")];
     state.cables.forEach(function(c, idx){
       var geo = computeCableGeometry(c);
       var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       lines.push([
-        idx+1, csvEscape(c.fromLabel), csvEscape(deviceTypeLabel(c.deviceType)), csvEscape(c.toLabel),
+        idx+1, csvEscape(c.fromLabel), csvEscape(deviceTypeLabel(c.deviceType)), csvEscape(c.connectorFrom||""),
+        csvEscape(c.toLabel), csvEscape(c.connectorTo||""),
         csvEscape(cableTypeInfo(c.cableType).label), csvEscape(trasse?trasse.name:""),
         geo.lengthDirect!=null?fmt(geo.lengthDirect):"", geo.lengthReserve!=null?fmt(geo.lengthReserve):"",
         c.reservePct, csvEscape(c.note||"")
