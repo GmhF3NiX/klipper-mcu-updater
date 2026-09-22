@@ -461,7 +461,7 @@
     hoverId: null,
     nextId: 1,
     nextTrasseId: 1,
-    blinkId: null, blinkStart: 0, blinkRAF: null
+    blinkId: null, blinkEnd: "from", blinkStart: 0, blinkRAF: null
   };
 
   // ---------- geometry helpers (also used for routing cables through a Trasse) ----------
@@ -721,7 +721,7 @@
     if (c.id === state.blinkId){
       var elapsed = performance.now() - state.blinkStart;
       var pulse = (Math.sin(elapsed/180) + 1) / 2; // 0..1
-      var bp = path[0];
+      var bp = state.blinkEnd==="to" ? path[path.length-1] : path[0];
       ctx.save();
       ctx.strokeStyle = "#C1571F";
       ctx.globalAlpha = 0.35 + 0.5*pulse;
@@ -908,8 +908,9 @@
 
   // ---------- "wo ist das?" - Kabel in der Liste anklicken springt zur
   // Geräteposition im Plan, zoomt näher heran und lässt den Punkt blinken.
-  function startBlink(id){
+  function startBlink(id, end){
     state.blinkId = id;
+    state.blinkEnd = end==="to" ? "to" : "from";
     state.blinkStart = performance.now();
     if (state.blinkRAF) cancelAnimationFrame(state.blinkRAF);
     (function tick(){
@@ -923,20 +924,21 @@
     })();
   }
 
-  function locateCableOnPlan(c){
+  function locateCableOnPlan(c, end){
     if (!state.img) return;
+    var p = end==="to" ? {x:c.x2,y:c.y2} : {x:c.x1,y:c.y1};
     var canvasPanel = byId("canvasPanel");
     if (canvasPanel && canvasPanel.scrollIntoView) canvasPanel.scrollIntoView({behavior:"smooth", block:"start"});
     if (state.zoom < 1.6) setZoom(1.8); else redraw();
     var rs = renderScale();
-    var targetX = c.x1 * rs, targetY = c.y1 * rs;
+    var targetX = p.x * rs, targetY = p.y * rs;
     var wrapW = canvasWrap.clientWidth, wrapH = canvasWrap.clientHeight;
     canvasWrap.scrollTo({
       left: Math.max(0, targetX - wrapW/2),
       top: Math.max(0, targetY - wrapH/2),
       behavior: "smooth"
     });
-    startBlink(c.id);
+    startBlink(c.id, end);
   }
 
   // ---------- scale pill ----------
@@ -1297,12 +1299,12 @@
       var geo = computeCableGeometry(c);
       var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       rows += '<tr data-id="'+c.id+'" class="' + (c.id===state.hoverId?'hover-active':'') + '">' +
-        '<td><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
+        '<td data-end="from"><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
           '<div>' + escapeHtml(c.fromLabel) +
             (c.bmkFrom? '<div class="bmk-tag">'+escapeHtml(c.bmkFrom)+'</div>':'') +
             '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · Stecker: '+escapeHtml(c.connectorFrom):'') + '</div></div>' +
         '</div></td>' +
-        '<td>' + escapeHtml(c.toLabel) +
+        '<td data-end="to">' + escapeHtml(c.toLabel) +
           (c.bmkTo? '<div class="bmk-tag">'+escapeHtml(c.bmkTo)+'</div>':'') +
           (c.connectorTo? '<div class="r" style="color:var(--ink-soft);font-size:11px;">Stecker: '+escapeHtml(c.connectorTo)+'</div>':'') + '</td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
@@ -1345,7 +1347,10 @@
         if (e.target.closest(".row-actions")) return;
         var id = parseFloat(tr.getAttribute("data-id"));
         var c = state.cables.find(function(x){return x.id===id;});
-        if (c) locateCableOnPlan(c);
+        if (!c) return;
+        var cell = e.target.closest("td[data-end]");
+        var end = cell ? cell.getAttribute("data-end") : "from";
+        locateCableOnPlan(c, end);
       });
     });
 
