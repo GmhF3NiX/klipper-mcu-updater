@@ -114,7 +114,22 @@
     font-size:13px;
   }
   .hintbar b{ color:var(--accent); }
-  .hintbar .btn{ margin-left:auto; padding:4px 10px; font-size:12px; }
+  .hintbar .btn{ padding:4px 10px; font-size:12px; }
+  .hintbar .spacer{ margin-left:auto; }
+
+  .trassebar{ display:flex; flex-wrap:wrap; gap:6px; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .trasse-chip{
+    display:inline-flex; align-items:center; gap:6px; padding:3px 5px 3px 9px; border-radius:999px;
+    font-size:11.5px; font-weight:600; background:var(--surface-2); color:var(--ink); border:1px solid var(--line);
+  }
+  .trasse-chip .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .trasse-chip .mono{ color:var(--ink-soft); font-weight:500; }
+  .trasse-chip .x{
+    display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px;
+    border-radius:50%; color:var(--ink-soft); border:none; background:transparent; padding:0;
+  }
+  .trasse-chip .x:hover{ background:var(--crit); color:#fff; }
+  .trasse-chip .x svg{ width:10px; height:10px; }
 
   .canvas-wrap{
     position:relative; overflow:auto; background:
@@ -124,7 +139,7 @@
     height:min(62vh, 640px); min-height:320px;
   }
   .canvas-wrap.empty{ display:flex; align-items:center; justify-content:center; }
-  #planCanvas{ display:block; cursor:crosshair; touch-action:none; }
+  #planCanvas{ display:block; cursor:crosshair; touch-action:manipulation; }
   .canvas-wrap.empty #planCanvas{ display:none; }
   .canvas-wrap:not(.empty) .dropzone{ display:none; }
 
@@ -247,6 +262,7 @@
     <div class="toolbar">
       <button class="btn ghost" id="btnLoadPlan" type="button">Plan laden</button>
       <button class="btn ghost" id="btnCalibrate" type="button">Ma&szlig;stab setzen</button>
+      <button class="btn ghost" id="btnNewTrasse" type="button">+ Neue Trasse</button>
       <button class="btn primary" id="btnNewCable" type="button">+ Neues Kabel</button>
       <span style="width:1px;background:var(--line);align-self:stretch;"></span>
       <button class="btn ghost" id="btnSaveProject" type="button">Projekt speichern</button>
@@ -277,8 +293,12 @@
 
       <div class="hintbar" id="modeHint" hidden>
         <span id="modeHintText"></span>
-        <button class="btn ghost" id="btnCancelMode" type="button">Abbrechen (Esc)</button>
+        <button class="btn ghost" id="btnTrasseUndo" type="button" hidden>Punkt entfernen</button>
+        <button class="btn primary" id="btnTrasseFinish" type="button" hidden>Fertig</button>
+        <button class="btn ghost spacer" id="btnCancelMode" type="button">Abbrechen (Esc)</button>
       </div>
+
+      <div class="trassebar" id="trasseBar" hidden></div>
 
       <div class="canvas-wrap empty" id="canvasWrap">
         <canvas id="planCanvas"></canvas>
@@ -339,8 +359,9 @@
     <ul>
       <li><b>1. Plan laden</b> &ndash; Foto/Scan des Wagenplans (im Ma&szlig;stab) hochladen.</li>
       <li><b>2. Ma&szlig;stab setzen</b> &ndash; zwei Punkte mit bekanntem Abstand anklicken (z.&nbsp;B. Wagenl&auml;nge) und die reale Distanz in Metern eintragen.</li>
-      <li><b>3. Kabel einzeichnen</b> &ndash; Ger&auml;teposition (AFZ, Kamera, WLAN&nbsp;&hellip;) und Zielpunkt (Schaltschrank/Verteiler) anklicken, Kabeltyp w&auml;hlen.</li>
-      <li><b>4. Exportieren</b> &ndash; Kabelliste als CSV (Excel) speichern, Projekt als Datei sichern um sp&auml;ter weiterzuarbeiten.</li>
+      <li><b>3. Trassen einzeichnen</b> &ndash; Verlauf der Kabelkan&auml;le/-pritschen als Linie anklicken (mehrere Punkte, mit &bdquo;Fertig&ldquo; abschlie&szlig;en), als Schwachstrom/Daten oder Starkstrom kategorisieren.</li>
+      <li><b>4. Kabel einzeichnen</b> &ndash; Ger&auml;teposition (AFZ, Kamera, WLAN&nbsp;&hellip;) und Zielpunkt (Schaltschrank/Verteiler) anklicken, Kabeltyp w&auml;hlen und optional einer Trasse zuordnen &ndash; die L&auml;nge wird dann entlang der Trasse berechnet statt Luftlinie.</li>
+      <li><b>5. Exportieren</b> &ndash; Kabelliste als CSV (Excel) speichern, Projekt als Datei sichern um sp&auml;ter weiterzuarbeiten.</li>
     </ul>
   </footer>
 
@@ -368,6 +389,11 @@
     {id:"e24", label:"Energie 24V DC", color:"#4FAE78"},
     {id:"sonstige", label:"Sonstige", color:"#8A94A0"}
   ];
+  var TRASSE_CATEGORIES = [
+    {id:"schwach", label:"Schwachstrom / Daten", color:"#3B6FD6"},
+    {id:"stark", label:"Starkstrom", color:"#E0574A"},
+    {id:"misch", label:"Gemischt / Sonstige", color:"#8A94A0"}
+  ];
   var DEFAULT_RESERVE_PCT = 15;
   var STORAGE_KEY = "kabeltrassen-planer-v1";
 
@@ -379,6 +405,10 @@
   function deviceTypeLabel(id){
     for (var i=0;i<DEVICE_TYPES.length;i++){ if (DEVICE_TYPES[i].id===id) return DEVICE_TYPES[i].label; }
     return id;
+  }
+  function trasseCategoryInfo(id){
+    for (var i=0;i<TRASSE_CATEGORIES.length;i++){ if (TRASSE_CATEGORIES[i].id===id) return TRASSE_CATEGORIES[i]; }
+    return TRASSE_CATEGORIES[TRASSE_CATEGORIES.length-1];
   }
   function fmt(n){
     if (n===null || n===undefined || isNaN(n)) return "–";
@@ -394,13 +424,73 @@
     img: null, imgW: 0, imgH: 0, imgDataURL: null, planFileName: "",
     scalePxPerM: null,
     zoom: 1,
-    mode: "idle", // idle | calib1 | calib2 | cable1 | cable2
+    mode: "idle", // idle | calib1 | calib2 | cable1 | cable2 | trasse-draw
     pending: null,
     editingId: null,
     cables: [],
+    trassen: [],
+    trassePoints: [],
     hoverId: null,
-    nextId: 1
+    nextId: 1,
+    nextTrasseId: 1
   };
+
+  // ---------- geometry helpers (also used for routing cables through a Trasse) ----------
+  function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+  function projectPointToSegment(p,a,b){
+    var dx=b.x-a.x, dy=b.y-a.y;
+    var lenSq = dx*dx+dy*dy;
+    var t = lenSq>0 ? ((p.x-a.x)*dx+(p.y-a.y)*dy)/lenSq : 0;
+    t = Math.max(0, Math.min(1,t));
+    return {point:{x:a.x+t*dx, y:a.y+t*dy}, t:t};
+  }
+  function projectPointToPolyline(p, points){
+    var best = null, cum = 0;
+    for (var i=0;i<points.length-1;i++){
+      var a = points[i], b = points[i+1];
+      var segLen = dist(a,b);
+      var proj = projectPointToSegment(p,a,b);
+      var distToProj = dist(p, proj.point);
+      var cumAtProj = cum + proj.t*segLen;
+      if (!best || distToProj < best.distToProj){
+        best = {point:proj.point, cumDist:cumAtProj, segIndex:i, distToProj:distToProj};
+      }
+      cum += segLen;
+    }
+    return best;
+  }
+  // Ordered list of points from projA to projB along the Trasse polyline.
+  function trassePathPoints(trasse, projA, projB){
+    var pts = trasse.points;
+    var forward = projA.cumDist <= projB.cumDist;
+    var lo = forward ? projA : projB;
+    var hi = forward ? projB : projA;
+    var mid = [];
+    for (var i = lo.segIndex+1; i <= hi.segIndex; i++) mid.push(pts[i]);
+    var seq = [lo.point].concat(mid).concat([hi.point]);
+    if (!forward) seq.reverse();
+    return seq;
+  }
+  function findTrasse(id){ return state.trassen.find(function(t){ return t.id===id; }); }
+  // Full geometry (path + length) for a cable: routed through its Trasse if set, else a direct line.
+  function computeCableGeometry(c){
+    var p1 = {x:c.x1,y:c.y1}, p2 = {x:c.x2,y:c.y2};
+    var path = null;
+    if (c.trasseId){
+      var trasse = findTrasse(c.trasseId);
+      if (trasse && trasse.points.length>=2){
+        var proj1 = projectPointToPolyline(p1, trasse.points);
+        var proj2 = projectPointToPolyline(p2, trasse.points);
+        path = [p1].concat(trassePathPoints(trasse, proj1, proj2)).concat([p2]);
+      }
+    }
+    if (!path) path = [p1, p2];
+    var pxDist = 0;
+    for (var i=1;i<path.length;i++) pxDist += dist(path[i-1], path[i]);
+    var lenD = state.scalePxPerM ? pxDist/state.scalePxPerM : null;
+    var lenR = lenD!=null ? lenD * (1+(c.reservePct||0)/100) : null;
+    return {path:path, pxDist:pxDist, lengthDirect:lenD, lengthReserve:lenR};
+  }
 
   // ---------- persistence (best effort, per-viewer convenience only) ----------
   function autosave(){
@@ -457,6 +547,12 @@
     ctx.clearRect(0,0,state.imgW,state.imgH);
     ctx.drawImage(state.img, 0, 0, state.imgW, state.imgH);
 
+    // Trassen (drawn first, underneath cables)
+    state.trassen.forEach(function(t){ drawTrasse(t); });
+    if (state.mode==="trasse-draw" && state.trassePoints.length){
+      drawTrasseInProgress();
+    }
+
     // cables
     state.cables.forEach(function(c, idx){
       drawCable(c, idx+1, c.id === state.hoverId);
@@ -474,15 +570,55 @@
       ctx.stroke();
       ctx.restore();
       markPoint(state.pending.x, state.pending.y, state.mode==="calib2" ? "#2F6FD6" : "#C1571F");
-    } else if (state.pending && (state.mode==="calib1sel")){
-      // not used
     }
-    if (state.pending && (state.mode==="calib2" || state.mode==="cable2")){
-      // already drawn above
-    }
-    if (state.pending && (state.mode==="calib1" || state.mode==="cable1")){
-      // nothing pending yet
-    }
+  }
+
+  function drawTrasse(t){
+    var rs = renderScale();
+    var info = trasseCategoryInfo(t.category);
+    ctx.save();
+    ctx.strokeStyle = info.color;
+    ctx.lineWidth = 5.5/rs;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    t.points.forEach(function(p, i){ i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y); });
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    t.points.forEach(function(p){
+      ctx.beginPath();
+      ctx.fillStyle = info.color;
+      ctx.arc(p.x,p.y,2.6/rs,0,Math.PI*2);
+      ctx.fill();
+    });
+    var mid = t.points[Math.floor((t.points.length-1)/2)];
+    ctx.font = "600 " + (11/rs) + "px 'IBM Plex Sans', sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = "#20242B";
+    ctx.globalAlpha = 0.8;
+    var label = t.name;
+    var tw = ctx.measureText(label).width;
+    ctx.fillRect(mid.x+6/rs, mid.y-16/rs, tw+8/rs, 14/rs);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#fff";
+    ctx.fillText(label, mid.x+10/rs, mid.y-3/rs);
+    ctx.restore();
+  }
+
+  function drawTrasseInProgress(){
+    var rs = renderScale();
+    ctx.save();
+    ctx.strokeStyle = "#2F6FD6";
+    ctx.lineWidth = 3/rs;
+    ctx.setLineDash([8/rs,6/rs]);
+    ctx.beginPath();
+    state.trassePoints.forEach(function(p,i){ i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y); });
+    ctx.lineTo(lastPointerImg.x, lastPointerImg.y);
+    ctx.stroke();
+    ctx.restore();
+    state.trassePoints.forEach(function(p){ markPoint(p.x,p.y,"#2F6FD6"); });
   }
 
   function markPoint(x,y,color){
@@ -498,19 +634,28 @@
   function drawCable(c, nr, isHover){
     var rs = renderScale();
     var info = cableTypeInfo(c.cableType);
+    var geo = computeCableGeometry(c);
+    var path = geo.path;
     ctx.save();
     ctx.globalAlpha = (state.hoverId && !isHover) ? 0.35 : 1;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    // White halo first so the cable stays legible against a same-colored Trasse underneath.
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = ((isHover? 3.6 : 2.2) + 2.2) / rs;
+    ctx.beginPath();
+    path.forEach(function(p,i){ i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y); });
+    ctx.stroke();
     ctx.strokeStyle = info.color;
     ctx.lineWidth = (isHover? 3.6 : 2.2) / rs;
     ctx.beginPath();
-    ctx.moveTo(c.x1, c.y1);
-    ctx.lineTo(c.x2, c.y2);
+    path.forEach(function(p,i){ i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y); });
     ctx.stroke();
 
-    [ [c.x1,c.y1], [c.x2,c.y2] ].forEach(function(p){
+    [ path[0], path[path.length-1] ].forEach(function(p){
       ctx.beginPath();
       ctx.fillStyle = info.color;
-      ctx.arc(p[0], p[1], 4/rs, 0, Math.PI*2);
+      ctx.arc(p.x, p.y, 4/rs, 0, Math.PI*2);
       ctx.fill();
       ctx.lineWidth = 1.5/rs;
       ctx.strokeStyle = "#fff";
@@ -580,19 +725,36 @@
       openCableModal(start, p);
       return;
     }
+    if (state.mode==="trasse-draw"){
+      state.trassePoints.push(p);
+      updateModeHint();
+      redraw();
+      return;
+    }
   }
 
   function updateModeHint(){
     var bar = byId("modeHint"), text = byId("modeHintText");
+    var undoBtn = byId("btnTrasseUndo"), finishBtn = byId("btnTrasseFinish");
+    undoBtn.hidden = true; finishBtn.hidden = true;
     if (state.mode==="calib1"){ bar.hidden=false; text.textContent="Maßstab: Klicke den ersten Punkt einer bekannten Strecke (z. B. Wagenanfang)."; }
     else if (state.mode==="calib2"){ bar.hidden=false; text.textContent="Maßstab: Klicke den zweiten Punkt der bekannten Strecke."; }
     else if (state.mode==="cable1"){ bar.hidden=false; text.textContent="Neues Kabel: Klicke die Geräteposition (Start)."; }
     else if (state.mode==="cable2"){ bar.hidden=false; text.textContent="Neues Kabel: Klicke den Zielpunkt (z. B. Schaltschrank)."; }
+    else if (state.mode==="trasse-draw"){
+      bar.hidden=false;
+      var n = state.trassePoints.length;
+      text.textContent = n===0
+        ? "Neue Trasse: Klicke den Startpunkt des Kabelkanals."
+        : "Neue Trasse: weitere Punkte anklicken, um dem Verlauf zu folgen (" + n + " gesetzt).";
+      undoBtn.hidden = n===0;
+      finishBtn.hidden = n<2;
+    }
     else { bar.hidden=true; }
   }
 
   function cancelMode(){
-    state.mode="idle"; state.pending=null; state.editingId=null;
+    state.mode="idle"; state.pending=null; state.editingId=null; state.trassePoints=[];
     updateModeHint();
     redraw();
   }
@@ -604,6 +766,15 @@
     }
   });
   byId("btnCancelMode").addEventListener("click", cancelMode);
+  byId("btnTrasseUndo").addEventListener("click", function(){
+    state.trassePoints.pop();
+    updateModeHint();
+    redraw();
+  });
+  byId("btnTrasseFinish").addEventListener("click", function(){
+    if (state.trassePoints.length<2) return;
+    openTrasseModal(state.trassePoints.slice());
+  });
 
   // ---------- image loading ----------
   function loadImageFromDataURL(dataURL, name, cb, onError){
@@ -673,7 +844,7 @@
   });
 
   // ---------- zoom ----------
-  function setZoom(z){ state.zoom = Math.min(3, Math.max(0.25, z)); byId("zoomReadout").textContent = Math.round(state.zoom*100)+"%"; redraw(); }
+  function setZoom(z){ state.zoom = Math.min(6, Math.max(0.25, z)); byId("zoomReadout").textContent = Math.round(state.zoom*100)+"%"; redraw(); }
   byId("btnZoomIn").addEventListener("click", function(){ setZoom(state.zoom*1.25); });
   byId("btnZoomOut").addEventListener("click", function(){ setZoom(state.zoom/1.25); });
   window.addEventListener("resize", function(){ redraw(); });
@@ -697,6 +868,10 @@
   byId("btnNewCable").addEventListener("click", function(){
     if (!state.img){ byId("fileInputPlan").click(); return; }
     state.editingId=null; state.mode="cable1"; state.pending=null; updateModeHint(); redraw();
+  });
+  byId("btnNewTrasse").addEventListener("click", function(){
+    if (!state.img){ byId("fileInputPlan").click(); return; }
+    state.mode="trasse-draw"; state.trassePoints=[]; updateModeHint(); redraw();
   });
 
   // ---------- modal machinery ----------
@@ -756,6 +931,80 @@
     byId("mCancel").addEventListener("click", function(){ closeModal(); cancelMode(); });
   }
 
+  function trasseCategoryOptionsHtml(sel){
+    return TRASSE_CATEGORIES.map(function(c){
+      return '<option value="'+c.id+'"'+(c.id===sel?' selected':'')+'>'+escapeHtml(c.label)+'</option>';
+    }).join("");
+  }
+
+  function openTrasseModal(points){
+    var pxLen = 0;
+    for (var i=1;i<points.length;i++) pxLen += dist(points[i-1], points[i]);
+    var lenM = state.scalePxPerM ? pxLen/state.scalePxPerM : null;
+    openModal(
+      '<h3>Trasse benennen</h3>' +
+      '<div class="body">' +
+        '<div class="readout">L&auml;nge des Verlaufs: <b>' + (lenM!=null ? fmt(lenM)+' m' : pxLen.toFixed(0)+' px (Ma&szlig;stab nicht gesetzt)') + '</b> &middot; ' + points.length + ' Punkte</div>' +
+        '<div class="field"><label for="tfName">Name</label>' +
+        '<input type="text" id="tfName" value="Trasse ' + state.nextTrasseId + '" autofocus></div>' +
+        '<div class="field"><label for="tfCategory">Kategorie</label>' +
+        '<select id="tfCategory">' + trasseCategoryOptionsHtml("schwach") + '</select></div>' +
+      '</div>' +
+      '<div class="foot">' +
+        '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
+        '<button class="btn primary" id="mOk" type="button">Trasse anlegen</button>' +
+      '</div>'
+    );
+    function submit(){
+      var name = byId("tfName").value.trim() || ("Trasse " + state.nextTrasseId);
+      var category = byId("tfCategory").value;
+      state.trassen.push({ id: state.nextTrasseId++, name: name, category: category, points: points });
+      closeModal();
+      cancelMode();
+      renderTrasseBar();
+      redraw();
+      autosave();
+    }
+    byId("mOk").addEventListener("click", submit);
+    byId("mCancel").addEventListener("click", function(){ closeModal(); cancelMode(); });
+  }
+
+  function renderTrasseBar(){
+    var bar = byId("trasseBar");
+    if (!state.trassen.length){ bar.hidden = true; bar.innerHTML=""; return; }
+    bar.hidden = false;
+    bar.innerHTML = state.trassen.map(function(t){
+      var info = trasseCategoryInfo(t.category);
+      var len = 0;
+      for (var i=1;i<t.points.length;i++) len += dist(t.points[i-1], t.points[i]);
+      var lenM = state.scalePxPerM ? len/state.scalePxPerM : null;
+      return '<span class="trasse-chip" data-tid="'+t.id+'">' +
+        '<span class="dot" style="background:'+info.color+'"></span>' +
+        escapeHtml(t.name) + ' <span class="mono">' + (lenM!=null?fmt(lenM)+' m':'&ndash;') + '</span>' +
+        '<button class="x" data-act="del-trasse" data-id="'+t.id+'" type="button" title="Trasse l&ouml;schen" aria-label="Trasse l&ouml;schen">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+      '</span>';
+    }).join("");
+    bar.querySelectorAll('[data-act="del-trasse"]').forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var id = parseFloat(btn.getAttribute("data-id"));
+        var t = findTrasse(id);
+        var usedBy = state.cables.filter(function(c){ return c.trasseId===id; }).length;
+        var msg = usedBy
+          ? '"' + (t?t.name:"") + '" wird gelöscht. ' + usedBy + ' Kabel, die dieser Trasse zugeordnet sind, werden danach wieder als Luftlinie berechnet.'
+          : '"' + (t?t.name:"") + '" wird gelöscht.';
+        openConfirmModal("Trasse löschen?", msg, "Löschen", function(){
+          state.trassen = state.trassen.filter(function(x){ return x.id!==id; });
+          state.cables.forEach(function(c){ if (c.trasseId===id) c.trasseId = null; });
+          renderTrasseBar();
+          renderTable();
+          redraw();
+          autosave();
+        });
+      });
+    });
+  }
+
   function deviceOptionsHtml(sel){
     return DEVICE_TYPES.map(function(d){
       return '<option value="'+d.id+'"'+(d.id===sel?' selected':'')+'>'+escapeHtml(d.label)+'</option>';
@@ -767,32 +1016,53 @@
     }).join("");
   }
 
+  function trasseSelectOptionsHtml(sel){
+    var html = '<option value=""' + (!sel?' selected':'') + '>&mdash; Direkte Luftlinie &mdash;</option>';
+    html += state.trassen.map(function(t){
+      var info = trasseCategoryInfo(t.category);
+      return '<option value="'+t.id+'"'+(t.id===sel?' selected':'')+'>'+escapeHtml(t.name)+' ('+info.label+')</option>';
+    }).join("");
+    return html;
+  }
+
   function openCableModal(p1, p2, existing){
-    var pxDist = p1 && p2 ? Math.hypot(p2.x-p1.x, p2.y-p1.y) : (existing ? Math.hypot(existing.x2-existing.x1, existing.y2-existing.y1) : 0);
-    var lenDirect = state.scalePxPerM ? pxDist/state.scalePxPerM : null;
     var e = existing || {};
+    var pt1 = p1 || {x:e.x1, y:e.y1};
+    var pt2 = p2 || {x:e.x2, y:e.y2};
     var reserve = e.reservePct != null ? e.reservePct : DEFAULT_RESERVE_PCT;
+
+    function readoutHtml(){
+      var trasseVal = byId("cfTrasse") ? byId("cfTrasse").value : (e.trasseId||"");
+      var reservePct = byId("cfReserve") ? (parseFloat(byId("cfReserve").value)||0) : reserve;
+      var tempCable = {x1:pt1.x,y1:pt1.y,x2:pt2.x,y2:pt2.y,trasseId:trasseVal?parseFloat(trasseVal):null,reservePct:reservePct};
+      var geo = computeCableGeometry(tempCable);
+      if (geo.lengthDirect==null){
+        return '<div class="readout" style="color:var(--warn)">Maßstab nicht gesetzt – Länge kann nicht berechnet werden (' + geo.pxDist.toFixed(0) + ' px).</div>';
+      }
+      var viaTxt = tempCable.trasseId ? " (Gerät → Trasse → Ziel)" : " (Luftlinie)";
+      return '<div class="readout">Strecke' + viaTxt + ': <b>' + fmt(geo.lengthDirect) + ' m</b> · inkl. Reserve: <b>' + fmt(geo.lengthReserve) + ' m</b></div>';
+    }
 
     openModal(
       '<h3>' + (existing ? "Kabel bearbeiten" : "Neues Kabel") + '</h3>' +
       '<div class="body">' +
-        (lenDirect!=null
-          ? '<div class="readout">Direkte Strecke (Luftlinie): <b>' + fmt(lenDirect) + ' m</b></div>'
-          : '<div class="readout" style="color:var(--warn)">Maßstab nicht gesetzt &ndash; Länge kann nicht berechnet werden (Pixel: ' + pxDist.toFixed(0) + ').</div>') +
+        '<div id="cfReadoutWrap">' + readoutHtml() + '</div>' +
         '<div class="field-row">' +
           '<div class="field"><label for="cfDevice">Gerätetyp</label>' +
           '<select id="cfDevice">' + deviceOptionsHtml(e.deviceType||"afz") + '</select></div>' +
           '<div class="field"><label for="cfReserve">Reserve (%)</label>' +
           '<input type="number" id="cfReserve" min="0" max="100" step="1" value="'+reserve+'"></div>' +
         '</div>' +
-        '<div class="field"><label for="cfFrom">Von / Position (z. B. Wagen 3, Abteil 2, Deckenauslass)</label>' +
+        '<div class="field"><label for="cfFrom">Von / Position (z. B. Wagen 3, Abteil 2, Deckenauslass)</label>' +
         '<input type="text" id="cfFrom" value="'+escapeHtml(e.fromLabel||"")+'" placeholder="Position des Geräts" autofocus></div>' +
-        '<div class="field"><label for="cfTo">Nach / Ziel (z. B. Schaltschrank Wagen 3)</label>' +
+        '<div class="field"><label for="cfTo">Nach / Ziel (z. B. Schaltschrank Wagen 3)</label>' +
         '<input type="text" id="cfTo" value="'+escapeHtml(e.toLabel||"")+'" placeholder="Zielpunkt / Verteiler"></div>' +
         '<div class="field"><label for="cfCableType">Kabeltyp</label>' +
         '<select id="cfCableType">' + cableOptionsHtml(e.cableType||"cat7") + '</select></div>' +
+        '<div class="field"><label for="cfTrasse">Kabeltrasse</label>' +
+        '<select id="cfTrasse">' + trasseSelectOptionsHtml(e.trasseId||"") + '</select></div>' +
         '<div class="field"><label for="cfNote">Bemerkung (optional)</label>' +
-        '<textarea id="cfNote" placeholder="z. B. Verlegung im Kabelkanal Decke, Zugentlastung nötig">'+escapeHtml(e.note||"")+'</textarea></div>' +
+        '<textarea id="cfNote" placeholder="z. B. Zugentlastung nötig">'+escapeHtml(e.note||"")+'</textarea></div>' +
       '</div>' +
       '<div class="foot">' +
         '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
@@ -800,30 +1070,31 @@
       '</div>'
     );
 
+    function refreshReadout(){ byId("cfReadoutWrap").innerHTML = readoutHtml(); }
+    byId("cfTrasse").addEventListener("change", refreshReadout);
+    byId("cfReserve").addEventListener("input", refreshReadout);
+
     function submit(){
       var deviceType = byId("cfDevice").value;
       var reservePct = parseFloat(byId("cfReserve").value) || 0;
       var fromLabel = byId("cfFrom").value.trim();
       var toLabel = byId("cfTo").value.trim();
       var cableType = byId("cfCableType").value;
+      var trasseVal = byId("cfTrasse").value;
+      var trasseId = trasseVal ? parseFloat(trasseVal) : null;
       var note = byId("cfNote").value.trim();
       if (!fromLabel) fromLabel = deviceTypeLabel(deviceType);
       if (!toLabel) toLabel = "Ziel unbenannt";
 
-      var lenD = state.scalePxPerM ? pxDist/state.scalePxPerM : null;
-      var lenR = lenD!=null ? lenD * (1+reservePct/100) : null;
-
       if (existing){
         existing.deviceType=deviceType; existing.reservePct=reservePct; existing.fromLabel=fromLabel;
-        existing.toLabel=toLabel; existing.cableType=cableType; existing.note=note;
-        existing.lengthDirect=lenD; existing.lengthReserve=lenR;
+        existing.toLabel=toLabel; existing.cableType=cableType; existing.note=note; existing.trasseId=trasseId;
       } else {
         state.cables.push({
           id: state.nextId++,
           deviceType: deviceType, fromLabel: fromLabel, toLabel: toLabel,
-          cableType: cableType, reservePct: reservePct, note: note,
-          x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y,
-          lengthDirect: lenD, lengthReserve: lenR
+          cableType: cableType, reservePct: reservePct, note: note, trasseId: trasseId,
+          x1:pt1.x, y1:pt1.y, x2:pt2.x, y2:pt2.y
         });
       }
       closeModal();
@@ -861,14 +1132,16 @@
 
     state.cables.forEach(function(c, idx){
       var info = cableTypeInfo(c.cableType);
+      var geo = computeCableGeometry(c);
+      var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       rows += '<tr data-id="'+c.id+'" class="' + (c.id===state.hoverId?'hover-active':'') + '">' +
         '<td><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
-          '<div>' + escapeHtml(c.fromLabel) + '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + escapeHtml(deviceTypeLabel(c.deviceType)) + '</div></div>' +
+          '<div>' + escapeHtml(c.fromLabel) + '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + '</div></div>' +
         '</div></td>' +
         '<td>' + escapeHtml(c.toLabel) + '</td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
-        '<td class="cell-len">' + (c.lengthReserve!=null? fmt(c.lengthReserve)+' m' : '–') +
-          (c.lengthDirect!=null? '<span class="r">'+fmt(c.lengthDirect)+' m direkt · +'+c.reservePct+'%</span>':'') + '</td>' +
+        '<td class="cell-len">' + (geo.lengthReserve!=null? fmt(geo.lengthReserve)+' m' : '–') +
+          (geo.lengthDirect!=null? '<span class="r">'+fmt(geo.lengthDirect)+' m direkt · +'+c.reservePct+'%</span>':'') + '</td>' +
         '<td>' + escapeHtml(c.note||"") + '</td>' +
         '<td><div class="row-actions">' +
           '<button class="icon-btn" data-act="edit" data-id="'+c.id+'" type="button" title="Bearbeiten" aria-label="Bearbeiten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></button>' +
@@ -911,8 +1184,9 @@
     var totalDirect = 0, totalReserve = 0, anyLen=false;
     var byType = {};
     state.cables.forEach(function(c){
-      if (c.lengthReserve!=null){ totalDirect += c.lengthDirect; totalReserve += c.lengthReserve; anyLen=true; }
-      byType[c.cableType] = (byType[c.cableType]||0) + (c.lengthReserve||0);
+      var geo = computeCableGeometry(c);
+      if (geo.lengthReserve!=null){ totalDirect += geo.lengthDirect; totalReserve += geo.lengthReserve; anyLen=true; }
+      byType[c.cableType] = (byType[c.cableType]||0) + (geo.lengthReserve||0);
     });
     byId("statCount").textContent = count;
     byId("statDirect").innerHTML = anyLen ? fmt(totalDirect) + " <small>m</small>" : "–";
@@ -961,12 +1235,14 @@
   }
 
   byId("btnExportCSV").addEventListener("click", function(){
-    var lines = [["Nr","Von / Gerät","Gerätetyp","Nach / Ziel","Kabeltyp","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Bemerkung"].join(";")];
+    var lines = [["Nr","Von / Gerät","Gerätetyp","Nach / Ziel","Kabeltyp","Trasse","Länge direkt (m)","Länge inkl. Reserve (m)","Reserve (%)","Bemerkung"].join(";")];
     state.cables.forEach(function(c, idx){
+      var geo = computeCableGeometry(c);
+      var trasse = c.trasseId ? findTrasse(c.trasseId) : null;
       lines.push([
         idx+1, csvEscape(c.fromLabel), csvEscape(deviceTypeLabel(c.deviceType)), csvEscape(c.toLabel),
-        csvEscape(cableTypeInfo(c.cableType).label),
-        c.lengthDirect!=null?fmt(c.lengthDirect):"", c.lengthReserve!=null?fmt(c.lengthReserve):"",
+        csvEscape(cableTypeInfo(c.cableType).label), csvEscape(trasse?trasse.name:""),
+        geo.lengthDirect!=null?fmt(geo.lengthDirect):"", geo.lengthReserve!=null?fmt(geo.lengthReserve):"",
         c.reservePct, csvEscape(c.note||"")
       ].join(";"));
     });
@@ -978,15 +1254,19 @@
   // ---------- project save/load ----------
   function serializeProject(){
     return {
-      version:1, planFileName: state.planFileName, imgDataURL: state.imgDataURL,
-      scalePxPerM: state.scalePxPerM, cables: state.cables, nextId: state.nextId
+      version:2, planFileName: state.planFileName, imgDataURL: state.imgDataURL,
+      scalePxPerM: state.scalePxPerM, cables: state.cables, nextId: state.nextId,
+      trassen: state.trassen, nextTrasseId: state.nextTrasseId
     };
   }
   function restoreProject(payload, silent){
     state.cables = payload.cables || [];
     state.nextId = payload.nextId || (state.cables.reduce(function(m,c){return Math.max(m,c.id);},0)+1);
+    state.trassen = payload.trassen || [];
+    state.nextTrasseId = payload.nextTrasseId || (state.trassen.reduce(function(m,t){return Math.max(m,t.id);},0)+1);
     state.scalePxPerM = payload.scalePxPerM || null;
     updateScalePill();
+    renderTrasseBar();
     if (payload.imgDataURL){
       loadImageFromDataURL(payload.imgDataURL, payload.planFileName, function(){
         renderTable(); redraw();
@@ -1022,6 +1302,7 @@
   // ---------- init ----------
   updateModeHint();
   updateScalePill();
+  renderTrasseBar();
   renderTable();
   tryAutoload();
   redraw();
