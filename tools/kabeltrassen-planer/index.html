@@ -654,6 +654,14 @@
   function findTrasse(id){ return state.trassen.find(function(t){ return t.id===id; }); }
   // Full geometry (path + length) for a cable: routed through its Trasse if set, else a direct line.
   function computeCableGeometry(c){
+    // Manuell erfasstes Kabel ohne Plan-Platzierung (z. B. bevor ein
+    // Verlegeplan existiert): Länge kommt direkt vom Nutzer statt aus der
+    // Zeichnung, kein Pfad zum Zeichnen/Lokalisieren vorhanden.
+    if (c.x1 == null && c.manualLengthM != null){
+      var lenDManual = c.manualLengthM;
+      var lenRManual = lenDManual * (1+(c.reservePct||0)/100);
+      return {path:null, pxDist:0, lengthDirect:lenDManual, lengthReserve:lenRManual};
+    }
     var p1 = {x:c.x1,y:c.y1}, p2 = {x:c.x2,y:c.y2};
     var path = null;
     if (c.trasseId){
@@ -796,7 +804,10 @@
     }
 
     // cables (nur die zum aktuellen Wagen-Filter passenden, wie in der Liste)
+    // Manuell erfasste Kabel ohne Plan-Platzierung haben keine Koordinaten
+    // und werden hier übersprungen - sie stehen nur in der Kabelliste.
     getVisibleCables().forEach(function(c, idx){
+      if (c.x1 == null) return;
       drawCable(c, idx+1, c.id === state.hoverId);
     });
 
@@ -1304,7 +1315,7 @@
   byId("btnExitFullscreen").addEventListener("click", exitPlanFullscreen);
 
   function locateCableOnPlan(c, end){
-    if (!state.img) return;
+    if (!state.img || c.x1 == null) return;
     enterPlanFullscreen();
 
     var path = computeCableGeometry(c).path;
@@ -1351,7 +1362,9 @@
     state.mode="calib1"; state.pending=null; updateModeHint(); hidePlanPopover(); redraw();
   });
   byId("btnNewCable").addEventListener("click", function(){
-    if (!state.img){ byId("fileInputPlan").click(); return; }
+    // Ohne Plan lässt sich nicht auf der Zeichnung klicken - Kabel dann
+    // direkt mit von Hand eingetragener Länge anlegen, kein Plan nötig.
+    if (!state.img){ openCableModal(null, null, null); return; }
     state.editingId=null; state.mode="cable1"; state.pending=null; updateModeHint(); hidePlanPopover(); redraw();
   });
   byId("btnNewTrasse").addEventListener("click", function(){
@@ -1802,10 +1815,22 @@
     var pt2 = p2 || {x:e.x2, y:e.y2};
     var reserve = e.reservePct != null ? e.reservePct : DEFAULT_RESERVE_PCT;
     var bmkDefaults = existing ? {from:"", to:""} : nextBmkSuggestion();
+    // Kein Plan-Punkt vorhanden (weder neu geklickt noch von einem
+    // bestehenden Kabel übernommen): Länge kommt per Texteingabe statt aus
+    // der Zeichnung - so lässt sich die Liste auch ohne Verlegeplan führen.
+    var manualMode = pt1.x == null || pt2.x == null;
 
     function readoutHtml(){
-      var trasseVal = byId("cfTrasse") ? byId("cfTrasse").value : (e.trasseId||"");
       var reservePct = byId("cfReserve") ? (parseFloat(byId("cfReserve").value)||0) : reserve;
+      if (manualMode){
+        var manualLen = byId("cfManualLen") ? parseFloat(byId("cfManualLen").value) : e.manualLengthM;
+        if (!manualLen || manualLen<=0){
+          return '<div class="readout" style="color:var(--warn)">Länge eintragen, um die Reserve zu berechnen.</div>';
+        }
+        var lenR = manualLen * (1+reservePct/100);
+        return '<div class="readout">Strecke (manuell): <b>' + fmt(manualLen) + ' m</b> · inkl. Reserve: <b>' + fmt(lenR) + ' m</b></div>';
+      }
+      var trasseVal = byId("cfTrasse") ? byId("cfTrasse").value : (e.trasseId||"");
       var tempCable = {x1:pt1.x,y1:pt1.y,x2:pt2.x,y2:pt2.y,trasseId:trasseVal?parseFloat(trasseVal):null,reservePct:reservePct};
       var geo = computeCableGeometry(tempCable);
       if (geo.lengthDirect==null){
@@ -1819,6 +1844,10 @@
       '<h3>' + (existing ? "Kabel bearbeiten" : "Neues Kabel") + '</h3>' +
       '<div class="body">' +
         '<div id="cfReadoutWrap">' + readoutHtml() + '</div>' +
+        (manualMode ?
+          '<div class="field"><label for="cfManualLen">Länge (m), von Hand gemessen/geschätzt</label>' +
+          '<input type="number" id="cfManualLen" min="0" step="0.01" value="'+(e.manualLengthM!=null?e.manualLengthM:"")+'" placeholder="z. B. 12.5" autofocus></div>'
+          : '') +
         '<div class="field-row">' +
           '<div class="field"><label for="cfWagen">Wagen</label>' +
           '<input type="text" id="cfWagen" list="wagenList" value="'+escapeHtml(e.wagen||"")+'" placeholder="z. B. Wagen 3"></div>' +
@@ -1829,7 +1858,7 @@
         '</div>' +
         wagenDatalistHtml() +
         '<div class="field"><label for="cfFrom">Von / Position (z. B. Wagen 3, Abteil 2, Deckenauslass)</label>' +
-        '<input type="text" id="cfFrom" list="locationList" value="'+escapeHtml(e.fromLabel||"")+'" placeholder="Position des Geräts" autofocus></div>' +
+        '<input type="text" id="cfFrom" list="locationList" value="'+escapeHtml(e.fromLabel||"")+'" placeholder="Position des Geräts"'+(manualMode?'':' autofocus')+'></div>' +
         '<div class="field-row">' +
           '<div class="field"><label for="cfBmkFrom">BMK an diesem Ende</label>' +
           '<input type="text" id="cfBmkFrom" value="'+escapeHtml(existing ? (e.bmkFrom||"") : bmkDefaults.from)+'" placeholder="z. B. K001-A"></div>' +
@@ -1847,8 +1876,9 @@
         connectorDatalistHtml() + locationDatalistHtml() +
         '<div class="field"><label for="cfCableType">Kabeltyp</label>' +
         '<select id="cfCableType">' + cableOptionsHtml(e.cableType||"cat7") + '</select></div>' +
-        '<div class="field"><label for="cfTrasse">Kabeltrasse</label>' +
-        '<select id="cfTrasse">' + trasseSelectOptionsHtml(e.trasseId||"") + '</select></div>' +
+        (manualMode ? '' :
+          '<div class="field"><label for="cfTrasse">Kabeltrasse</label>' +
+          '<select id="cfTrasse">' + trasseSelectOptionsHtml(e.trasseId||"") + '</select></div>') +
         '<div class="field"><label for="cfNote">Bemerkung (optional)</label>' +
         '<textarea id="cfNote" placeholder="z. B. Zugentlastung nötig">'+escapeHtml(e.note||"")+'</textarea></div>' +
       '</div>' +
@@ -1859,7 +1889,8 @@
     );
 
     function refreshReadout(){ byId("cfReadoutWrap").innerHTML = readoutHtml(); }
-    byId("cfTrasse").addEventListener("change", refreshReadout);
+    if (byId("cfTrasse")) byId("cfTrasse").addEventListener("change", refreshReadout);
+    if (byId("cfManualLen")) byId("cfManualLen").addEventListener("input", refreshReadout);
     byId("cfReserve").addEventListener("input", refreshReadout);
 
     function submit(){
@@ -1873,9 +1904,14 @@
       var connectorFrom = byId("cfConnFrom").value.trim();
       var connectorTo = byId("cfConnTo").value.trim();
       var cableType = byId("cfCableType").value;
-      var trasseVal = byId("cfTrasse").value;
+      var trasseVal = byId("cfTrasse") ? byId("cfTrasse").value : "";
       var trasseId = trasseVal ? parseFloat(trasseVal) : null;
       var note = byId("cfNote").value.trim();
+      var manualLengthM = null;
+      if (manualMode){
+        var mv = parseFloat(byId("cfManualLen").value);
+        manualLengthM = (!isNaN(mv) && mv>0) ? mv : null;
+      }
       if (!fromLabel) fromLabel = deviceTypeLabel(deviceType);
       if (!toLabel) toLabel = "Ziel unbenannt";
 
@@ -1883,14 +1919,20 @@
         existing.wagen=wagen; existing.bmkFrom=bmkFrom; existing.bmkTo=bmkTo; existing.deviceType=deviceType; existing.reservePct=reservePct; existing.fromLabel=fromLabel;
         existing.toLabel=toLabel; existing.cableType=cableType; existing.note=note; existing.trasseId=trasseId;
         existing.connectorFrom=connectorFrom; existing.connectorTo=connectorTo;
+        if (manualMode) existing.manualLengthM = manualLengthM;
       } else {
-        state.cables.push({
+        var newCable = {
           id: state.nextId++, wagen: wagen, bmkFrom: bmkFrom, bmkTo: bmkTo,
           deviceType: deviceType, fromLabel: fromLabel, toLabel: toLabel,
           cableType: cableType, reservePct: reservePct, note: note, trasseId: trasseId,
-          connectorFrom: connectorFrom, connectorTo: connectorTo,
-          x1:pt1.x, y1:pt1.y, x2:pt2.x, y2:pt2.y
-        });
+          connectorFrom: connectorFrom, connectorTo: connectorTo
+        };
+        if (manualMode){
+          newCable.manualLengthM = manualLengthM;
+        } else {
+          newCable.x1=pt1.x; newCable.y1=pt1.y; newCable.x2=pt2.x; newCable.y2=pt2.y;
+        }
+        state.cables.push(newCable);
       }
       closeModal();
       cancelMode();
