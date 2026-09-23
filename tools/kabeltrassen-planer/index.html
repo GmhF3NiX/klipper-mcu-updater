@@ -623,7 +623,7 @@
     img: null, imgW: 0, imgH: 0, imgDataURL: null, planFileName: "",
     scalePxPerM: null,
     zoom: 1,
-    mode: "idle", // idle | calib1 | calib2 | cable1 | cable2 | trasse-draw | device-pos
+    mode: "idle", // idle | calib1 | calib2 | cable1 | cable2 | trasse-draw | device-pos | device-place
     devicePosId: null, // welches Gerät bekommt den nächsten Plan-Klick als Position
     pending: null,
     editingId: null,
@@ -1165,6 +1165,13 @@
       autosave();
       return;
     }
+    if (state.mode==="device-place"){
+      state.mode = "idle";
+      updateModeHint();
+      redraw();
+      openDeviceFromTemplateModal(p);
+      return;
+    }
     // Idle: erst prüfen, ob ein Geräte-Marker getroffen wurde (größer,
     // eigenständig) - sonst wie gehabt nach Kabel-Endpunkten an dieser
     // Stelle suchen.
@@ -1288,6 +1295,7 @@
       finishBtn.hidden = n<2;
     }
     else if (state.mode==="device-pos"){ bar.hidden=false; text.textContent="Position setzen: Klicke auf den Plan, wo das Gerät sitzt."; }
+    else if (state.mode==="device-place"){ bar.hidden=false; text.textContent="Gerät aus Vorlage: Klicke auf den Plan, wo das Gerät sitzt."; }
     else { bar.hidden=true; }
   }
 
@@ -2128,7 +2136,7 @@
   // Kabel leer zum Nachtragen. Kabel werden - wie "Länge manuell" -
   // zunächst ohne Plan-Koordinaten angelegt; Platzierung auf dem Plan
   // und Länge trägt man später über "Bearbeiten" pro Kabel nach.
-  function openDeviceFromTemplateModal(){
+  function openDeviceFromTemplateModal(point){
     if (!state.deviceTemplates.length){
       openConfirmModal(
         "Noch keine Geräte-Vorlage",
@@ -2146,23 +2154,28 @@
     openModal(
       '<h3>Gerät aus Vorlage anlegen</h3>' +
       '<div class="body">' +
-        '<div class="field"><label for="dfWagen">Wagen</label>' +
-        '<input type="text" id="dfWagen" list="wagenList" placeholder="z. B. Wagen 3"></div>' +
+        (point
+          ? '<div class="readout" style="color:var(--good);">Position auf dem Plan ist gesetzt.</div>'
+          : '<div class="readout" style="color:var(--ink-soft);">Ohne Plan-Position angelegt – lässt sich später über „Position auf Plan setzen“ nachtragen.</div>') +
+        '<div class="field-row">' +
+          '<div class="field"><label for="dfWagen">Wagen</label>' +
+          '<input type="text" id="dfWagen" list="wagenList" placeholder="z. B. Wagen 3"></div>' +
+          '<div class="field"><label for="dfTemplate">Ger&auml;te-Vorlage</label>' +
+          '<select id="dfTemplate">' + templateOptionsHtml() + '</select></div>' +
+        '</div>' +
         wagenDatalistHtml() +
-        '<div class="field"><label for="dfTemplate">Ger&auml;te-Vorlage</label>' +
-        '<select id="dfTemplate">' + templateOptionsHtml() + '</select></div>' +
-        '<div class="field"><label for="dfFrom">Von / Position (z. B. Wagen 3, Abteil 2, Display Nord)</label>' +
-        '<input type="text" id="dfFrom" list="locationList" placeholder="Position des Geräts" autofocus></div>' +
+        '<div class="field"><label for="dfFrom">Genauer Name des Ger&auml;ts (z. B. Display 1, Display Nord)</label>' +
+        '<input type="text" id="dfFrom" list="locationList" placeholder="Name/Position des Geräts" autofocus></div>' +
         '<div class="field"><label for="dfTo">Nach / Ziel (z. B. Ger&auml;tetr&auml;ger)</label>' +
         '<input type="text" id="dfTo" list="locationList" placeholder="Zielpunkt / Verteiler"></div>' +
         locationDatalistHtml() +
         '<div class="field"><label for="dfReserve">Reserve (%)</label>' +
         '<input type="number" id="dfReserve" min="0" max="100" step="1" value="'+DEFAULT_RESERVE_PCT+'"></div>' +
-        '<div class="readout" style="color:var(--ink-soft);">Die Kabel werden ohne Plan-Position angelegt (wie „Länge manuell“) und mit leerer BMK &ndash; Länge/Plan-Klick und BMK trägst du je Kabel über „Bearbeiten“ nach.</div>' +
+        '<div class="readout" style="color:var(--ink-soft);">Die Kabel werden mit leerer BMK angelegt &ndash; BMK und (falls hier keine Plan-Position gesetzt wurde) Länge trägst du je Kabel über „Bearbeiten“ nach.</div>' +
       '</div>' +
       '<div class="foot">' +
         '<button class="btn ghost" id="mCancel" type="button">Abbrechen</button>' +
-        '<button class="btn primary" id="mOk" type="button">Kabel anlegen</button>' +
+        '<button class="btn primary" id="mOk" type="button">Ger&auml;t anlegen</button>' +
       '</div>'
     );
     byId("mOk").addEventListener("click", function(){
@@ -2174,7 +2187,7 @@
       var toLabel = byId("dfTo").value.trim() || "Ziel unbenannt";
       var reservePct = parseFloat(byId("dfReserve").value) || 0;
 
-      var device = {id: state.nextDeviceId++, templateId: t.id, label: fromLabel, wagen: wagen, x: null, y: null};
+      var device = {id: state.nextDeviceId++, templateId: t.id, label: fromLabel, wagen: wagen, x: point?point.x:null, y: point?point.y:null};
       state.devices.push(device);
 
       t.slots.forEach(function(s){
@@ -2201,7 +2214,20 @@
     });
     byId("mCancel").addEventListener("click", closeModal);
   }
-  byId("btnDeviceFromTemplate").addEventListener("click", openDeviceFromTemplateModal);
+  byId("btnDeviceFromTemplate").addEventListener("click", function(){
+    if (!state.deviceTemplates.length){ openDeviceFromTemplateModal(); return; }
+    // Mit geladenem Plan: erst den Punkt anklicken (wie bei "+ Neues
+    // Kabel"), das Gerät bekommt seine Position dann direkt beim
+    // Anlegen statt über einen separaten Schritt danach.
+    if (state.img){
+      state.mode = "device-place";
+      updateModeHint();
+      hidePlanPopover();
+      redraw();
+      return;
+    }
+    openDeviceFromTemplateModal(null);
+  });
 
   // Geräte-Detailfenster: Klick auf einen Plan-Marker oder den Gerätenamen
   // in der Kabelliste - alle Kabel dieses Geräts + die Vorlagen-Fotos
