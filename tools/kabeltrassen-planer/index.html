@@ -1011,12 +1011,12 @@
     var color = (tmpl && tmpl.color) || "#20242B";
     ctx.save();
     ctx.globalAlpha = (state.hoverDeviceId && !isHover) ? 0.4 : 1;
-    var r = (isHover? 12 : 10) / rs;
+    var r = (isHover? 7 : 5.5) / rs;
     ctx.beginPath();
     ctx.fillStyle = color;
     ctx.arc(d.x, d.y, r, 0, Math.PI*2);
     ctx.fill();
-    ctx.lineWidth = 2.4/rs;
+    ctx.lineWidth = 1.4/rs;
     ctx.strokeStyle = "#fff";
     ctx.stroke();
     ctx.beginPath();
@@ -1025,14 +1025,14 @@
     ctx.fill();
 
     var label = d.label || (tmpl ? tmpl.name : "Gerät");
-    ctx.font = "700 " + (11.5/rs) + "px 'IBM Plex Sans', sans-serif";
+    ctx.font = "600 " + (9.5/rs) + "px 'IBM Plex Sans', sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    var ty = d.y + r + 3/rs;
+    var ty = d.y + r + 2/rs;
     var tw = ctx.measureText(label).width;
-    var padX = 5/rs, padY = 2/rs;
+    var padX = 4/rs, padY = 1.5/rs;
     ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.fillRect(d.x-tw/2-padX, ty-padY, tw+padX*2, (11.5/rs)+padY*2);
+    ctx.fillRect(d.x-tw/2-padX, ty-padY, tw+padX*2, (9.5/rs)+padY*2);
     ctx.fillStyle = "#20242B";
     ctx.fillText(label, d.x, ty);
     ctx.restore();
