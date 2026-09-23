@@ -89,12 +89,12 @@
   .btn:disabled{ opacity:.45; cursor:not-allowed; }
   .btn svg{ width:15px; height:15px; flex:none; }
 
+  /* Immer gestapelt statt nebeneinander: Plan oben (kompakt), Kabelliste
+     darunter über die volle Breite - die Liste ist das, womit am meisten
+     gearbeitet wird, und braucht mehr Platz als eine schmale Seitenspalte. */
   main.layout{
-    display:grid; grid-template-columns: minmax(0,1.35fr) minmax(320px, 1fr);
+    display:grid; grid-template-columns: 1fr;
     gap:16px; padding:16px; align-items:start;
-  }
-  @media (max-width: 900px){
-    main.layout{ grid-template-columns: 1fr; }
   }
 
   .panel{
@@ -246,30 +246,30 @@
   button.chip:hover{ border-color:var(--accent); background:var(--accent-soft); }
 
   .table-wrap{ overflow-x:auto; }
-  table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  table{ width:100%; border-collapse:collapse; font-size:15.5px; }
   thead th{
     position:sticky; top:0; background:var(--surface); text-align:left; font-weight:600;
-    color:var(--ink-soft); text-transform:uppercase; font-size:10.5px; letter-spacing:.05em;
-    padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
+    color:var(--ink-soft); text-transform:uppercase; font-size:12px; letter-spacing:.05em;
+    padding:11px 12px; border-bottom:1px solid var(--line); white-space:nowrap;
   }
-  tbody td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tbody td{ padding:14px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
   tbody tr.example{ opacity:.55; font-style:italic; }
   tbody tr:hover{ background:var(--surface-2); }
   tbody tr.hover-active{ background:var(--accent-soft); }
   tbody tr[data-id]{ cursor:pointer; }
-  .cell-device{ display:flex; align-items:center; gap:6px; }
+  .cell-device{ display:flex; align-items:center; gap:8px; }
   .cell-device .nr{
-    font-family:"IBM Plex Mono"; font-size:11px; color:var(--surface); background:var(--ink-soft);
-    border-radius:5px; padding:1px 5px; flex:none;
+    font-family:"IBM Plex Mono"; font-size:13px; color:var(--surface); background:var(--ink-soft);
+    border-radius:5px; padding:2px 7px; flex:none;
   }
   .bmk-tag{
     display:inline-flex; align-items:center; gap:4px; vertical-align:middle;
-    font-family:"IBM Plex Mono"; font-weight:700; font-size:11px; letter-spacing:.02em;
+    font-family:"IBM Plex Mono"; font-weight:700; font-size:13px; letter-spacing:.02em;
     color:var(--ink); background:var(--surface);
     border:1.5px solid var(--accent); border-radius:4px;
-    padding:1px 6px 2px; white-space:nowrap;
+    padding:2px 7px 3px; white-space:nowrap;
   }
-  .bmk-tag svg{ width:10px; height:10px; flex:none; color:var(--accent); }
+  .bmk-tag svg{ width:11px; height:11px; flex:none; color:var(--accent); }
   .stecker-link{
     border:none; background:none; padding:0; font:inherit; color:var(--accent);
     text-decoration:underline; text-decoration-style:dotted; text-underline-offset:2px;
@@ -309,7 +309,7 @@
   @media (prefers-reduced-motion: reduce){
     tr.row-flash{ animation:none; background:var(--accent-soft); }
   }
-  .cell-len .r{ color:var(--ink-soft); font-size:11px; display:block; }
+  .cell-len .r{ color:var(--ink-soft); font-size:13px; display:block; }
   .cell-type{ display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
   .cell-type .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
   .row-actions{ display:flex; gap:4px; }
@@ -1998,10 +1998,10 @@
       rows += '<tr data-id="'+c.id+'" class="' + (c.id===state.hoverId?'hover-active':'') + '">' +
         '<td data-end="from"><div class="cell-device"><span class="nr mono">'+(idx+1)+'</span>' +
           '<div>' + escapeHtml(c.fromLabel) + (c.bmkFrom? ' '+bmkTagHtml(c.bmkFrom):'') +
-            '<div class="r" style="color:var(--ink-soft);font-size:11px;">' + (c.wagen? escapeHtml(c.wagen)+' · ':'') + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · '+steckerLinkHtml(c.connectorFrom):'') + '</div></div>' +
+            '<div class="r" style="color:var(--ink-soft);font-size:13px;">' + (c.wagen? escapeHtml(c.wagen)+' · ':'') + escapeHtml(deviceTypeLabel(c.deviceType)) + (trasse? ' · via '+escapeHtml(trasse.name):'') + (c.connectorFrom? ' · '+steckerLinkHtml(c.connectorFrom):'') + '</div></div>' +
         '</div></td>' +
         '<td data-end="to">' + escapeHtml(c.toLabel) + (c.bmkTo? ' '+bmkTagHtml(c.bmkTo):'') +
-          (c.connectorTo? '<div class="r" style="color:var(--ink-soft);font-size:11px;">'+steckerLinkHtml(c.connectorTo)+'</div>':'') + '</td>' +
+          (c.connectorTo? '<div class="r" style="color:var(--ink-soft);font-size:13px;">'+steckerLinkHtml(c.connectorTo)+'</div>':'') + '</td>' +
         '<td><span class="cell-type"><span class="dot" style="background:'+info.color+'"></span>'+info.label+'</span></td>' +
         '<td class="cell-len">' + (geo.lengthReserve!=null? fmt(geo.lengthReserve)+' m' : '–') +
           (geo.lengthDirect!=null? '<span class="r">'+fmt(geo.lengthDirect)+' m direkt · +'+c.reservePct+'%</span>':'') + '</td>' +
