@@ -376,6 +376,7 @@
       <button class="btn ghost" id="btnCalibrate" type="button">Ma&szlig;stab setzen</button>
       <button class="btn ghost" id="btnNewTrasse" type="button">+ Neue Trasse</button>
       <button class="btn primary" id="btnNewCable" type="button">+ Neues Kabel</button>
+      <button class="btn ghost" id="btnNewCableManual" type="button">+ Kabel (L&auml;nge manuell)</button>
       <span style="width:1px;background:var(--line);align-self:stretch;"></span>
       <button class="btn ghost" id="btnSaveProject" type="button">Projekt speichern</button>
       <button class="btn ghost" id="btnLoadProject" type="button">Projekt laden</button>
@@ -1367,6 +1368,12 @@
     if (!state.img){ openCableModal(null, null, null); return; }
     state.editingId=null; state.mode="cable1"; state.pending=null; updateModeHint(); hidePlanPopover(); redraw();
   });
+  // Eigener Button für Länge von Hand, unabhängig davon, ob schon ein Plan
+  // geladen ist - fürs Erfassen aus einer Stückliste, ohne auf dem Plan
+  // klicken zu müssen.
+  byId("btnNewCableManual").addEventListener("click", function(){
+    openCableModal(null, null, null);
+  });
   byId("btnNewTrasse").addEventListener("click", function(){
     if (!state.img){ byId("fileInputPlan").click(); return; }
     state.mode="trasse-draw"; state.trassePoints=[]; updateModeHint(); hidePlanPopover(); redraw();
@@ -2262,7 +2269,7 @@
   // Nur ein Soft-Gate gegen versehentliches Ändern im Alltag (auf der
   // Anlage als reiner Installationsplan genutzt) - kein Ersatz für echte
   // Zugriffskontrolle, da der komplette Quelltext im Browser liegt.
-  var WRITE_BUTTON_IDS = ["btnLoadPlan","btnCalibrate","btnNewTrasse","btnNewCable","btnGrundwerte","btnLoadProject"];
+  var WRITE_BUTTON_IDS = ["btnLoadPlan","btnCalibrate","btnNewTrasse","btnNewCable","btnNewCableManual","btnGrundwerte","btnLoadProject"];
 
   async function hashPin(pin){
     if (window.crypto && window.crypto.subtle && window.isSecureContext){
