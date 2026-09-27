@@ -189,6 +189,26 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
 .copy{border:1px solid var(--line);background:none;border-radius:4px;font-size:12px;padding:2px 8px;cursor:pointer;color:var(--muted)}
 .search{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:8px 10px;min-width:0;flex:1 1 180px;max-width:320px}
 
+/* Notizen */
+.qn{display:grid;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.seg button{border:0;background:var(--surface);padding:6px 12px;cursor:pointer;font-size:14px;color:var(--muted)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.qn-row{display:flex;gap:8px;flex-wrap:wrap}
+.qn-row textarea{flex:1 1 240px;min-height:44px;max-height:180px;resize:vertical;border:1px solid var(--line);background:var(--bg);border-radius:var(--r);padding:10px;color:var(--ink);font-size:16px}
+.qn-row select{border:1px solid var(--line);background:var(--bg);border-radius:var(--r);padding:8px;color:var(--ink);max-width:100%}
+.note{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.note .actions{grid-column:2;margin:-4px 0 -6px -8px}
+.note.wichtig{border-left:4px solid var(--bad)}
+.note.done .nt{text-decoration:line-through;color:var(--muted)}
+.note input[type=checkbox]{width:20px;height:20px;margin-top:2px;accent-color:var(--ok)}
+.note .ico{width:20px;text-align:center;font-size:15px;margin-top:1px}
+.nt{white-space:pre-wrap;overflow-wrap:anywhere}
+.star{border:0;background:none;cursor:pointer;font-size:17px;color:var(--muted);padding:2px 4px}
+.star[aria-pressed="true"]{color:var(--bad)}
+.nsec{display:grid;gap:8px}
+
 /* Formular-Sheet */
 .overlay{position:fixed;inset:0;background:rgba(10,14,15,.55);z-index:50;display:flex;justify-content:center;align-items:flex-end;padding-top:calc(env(safe-area-inset-top,0px) + 24px)}
 @media (min-width:720px){.overlay{align-items:center;padding:24px}}
@@ -229,6 +249,7 @@ legend{font:600 14px var(--display);letter-spacing:.06em;text-transform:uppercas
     <div class="ruler" aria-hidden="true"></div>
     <nav class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="uebersicht" id="t-uebersicht">Übersicht</button>
+      <button class="tab" role="tab" data-tab="notizen" id="t-notizen">Notizen<span class="cnt" id="c-notizen"></span></button>
       <button class="tab" role="tab" data-tab="termine" id="t-termine">Termine<span class="cnt" id="c-termine"></span></button>
       <button class="tab" role="tab" data-tab="tagebuch" id="t-tagebuch">Tagebuch<span class="cnt" id="c-tagebuch"></span></button>
       <button class="tab" role="tab" data-tab="belege" id="t-belege">Belege &amp; Kosten<span class="cnt" id="c-belege"></span></button>
@@ -246,6 +267,7 @@ legend{font:600 14px var(--display);letter-spacing:.06em;text-transform:uppercas
   <section class="view" id="v-belege" hidden></section>
   <section class="view" id="v-raeume" hidden></section>
   <section class="view" id="v-install" hidden></section>
+  <section class="view" id="v-notizen" hidden></section>
   <section class="view" id="v-termine" hidden></section>
   <section class="view" id="v-kontakte" hidden></section>
 </main>
@@ -256,14 +278,14 @@ legend{font:600 14px var(--display);letter-spacing:.06em;text-transform:uppercas
 
 <script>
 (() => {
-const TABS = ['uebersicht','termine','tagebuch','belege','raeume','install','kontakte'];
+const TABS = ['uebersicht','notizen','termine','tagebuch','belege','raeume','install','kontakte'];
 const CATS = ['Material','Werkzeug & Leihgeräte','Handwerker','Entsorgung','Sonstiges'];
 const STATUS = ['Bestellt','Geliefert','Bezahlt'];
 const EUR = new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'});
 const NUM = new Intl.NumberFormat('de-DE',{maximumFractionDigits:2});
 const DATE = new Intl.DateTimeFormat('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'});
 
-const S = {events:[],contacts:[],cal:{month:null,sel:null},ct:{q:'',trade:''},points:[],inst:{room:null,plan:null,zoom:1,placing:false,move:null,sel:null,hide:[]},rooms:[],entries:[],costs:[],meta:{},tab:'uebersicht',room:null,filter:{room:'',cat:'',status:''},loaded:{rooms:false,entries:false,costs:false}};
+const S = {notes:[],nt:{type:'todo',filter:'',room:'',qroom:'',showDone:false},events:[],contacts:[],cal:{month:null,sel:null},ct:{q:'',trade:''},points:[],inst:{room:null,plan:null,zoom:1,placing:false,move:null,sel:null,hide:[]},rooms:[],entries:[],costs:[],meta:{},tab:'uebersicht',room:null,filter:{room:'',cat:'',status:''},loaded:{rooms:false,entries:false,costs:false}};
 let db=null, assets=null, downloads=null, canWrite=true;
 
 const $ = (s,r=document)=>r.querySelector(s);
@@ -305,7 +327,8 @@ function render(){
   $('#c-install').textContent = S.points.length||'';
   const up=S.events.filter(e=>e.date>=today()&&!e.done).length;
   $('#c-termine').textContent = up||''; $('#c-kontakte').textContent = S.contacts.length||'';
-  renderOverview(); renderDiary(); renderCosts(); renderRooms(); renderInstall(); renderCal(); renderContacts();
+  renderOverview(); renderDiary(); renderCosts(); renderRooms(); renderInstall(); renderCal(); renderContacts(); renderNotes();
+  $('#c-notizen').textContent = openTodos().length||'';
 }
 
 function statTile(k,v,s='',extra=''){ return `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:''}${extra}</div>`; }
@@ -346,6 +369,10 @@ function renderOverview(){
       <div class="panel"><h3>Nach Raum</h3>${bars(byRoom)}</div>
     </div>
     <div class="grid2">
+      <div class="panel" style="display:grid;gap:10px">
+        <div class="head-row"><h3>Offene Aufgaben</h3><button class="btn" data-tab="notizen">Alle ansehen</button></div>
+        ${(()=>{ const l=openTodos().slice(0,6); return l.length?l.map(n=>`<label class="chk" style="align-items:flex-start"><input type="checkbox" data-act="note-done" data-id="${esc(n.id)}"${db&&canWrite?'':' disabled'}><span>${n.prio?'<b style="color:var(--bad)">!</b> ':''}${esc(n.text.length>90?n.text.slice(0,90)+'…':n.text)}${n.roomId?` <span class="chip">${esc(roomName(n.roomId))}</span>`:''}</span></label>`).join(''):`<p class="muted small">Keine offenen Aufgaben.</p>`; })()}
+      </div>
       <div class="panel" style="display:grid;gap:10px">
         <div class="head-row"><h3>Nächste Termine</h3>${canWrite&&db?`<button class="btn" data-act="new-event">+ Termin</button>`:''}</div>
         ${(()=>{ const up=S.events.filter(e=>e.date>=today()&&!e.done).sort(sortEv).slice(0,4); return up.length?up.map(e=>`<div><div class="meta"><span class="mono">${esc(fmtD(e.date))}</span><span class="mono">${esc(evTime(e))}</span><span class="chip" style="background:${ekind(e.kind)[2]};color:#fff">${esc(ekind(e.kind)[1])}</span></div><div style="font-weight:600">${esc(e.title)}</div>${e.contactId&&contactName(e.contactId)?`<div class="small muted">${esc(contactName(e.contactId))}</div>`:''}</div>`).join(''):`<p class="muted small">Keine anstehenden Termine.</p>`; })()}
@@ -750,6 +777,73 @@ function contactForm(c={}){
   }});
 }
 
+/* ---------- Notizen ---------- */
+const NTYPES=[['todo','Aufgabe','☐'],['idee','Idee','💡'],['notiz','Notiz','✎']];
+const openTodos=()=>S.notes.filter(n=>n.type==='todo'&&!n.done).sort((a,b)=>(b.prio?1:0)-(a.prio?1:0)||(a.createdAt||0)-(b.createdAt||0));
+function noteRow(n){
+  const t=NTYPES.find(x=>x[0]===n.type)||NTYPES[2], can=db&&canWrite;
+  return `<div class="note${n.prio?' wichtig':''}${n.done?' done':''}">
+    ${n.type==='todo'?`<input type="checkbox" data-act="note-done" data-id="${esc(n.id)}"${n.done?' checked':''}${can?'':' disabled'} aria-label="Erledigt">`:`<span class="ico" aria-hidden="true">${t[2]}</span>`}
+    <div style="min-width:0"><div class="nt">${esc(n.text)}</div>
+      <div class="meta"><span class="mono">${esc(fmtD(new Date(n.createdAt||Date.now()).toISOString().slice(0,10)))}</span>${n.roomId?`<span class="chip">${esc(roomName(n.roomId))}</span>`:''}${n.done&&n.doneAt?`<span>erledigt ${esc(fmtD(isoD(new Date(n.doneAt))))}</span>`:''}</div></div>
+    <div class="actions" style="align-items:center">${can?`<button class="star" data-act="note-prio" data-id="${esc(n.id)}" aria-pressed="${!!n.prio}" title="Wichtig" aria-label="Wichtig">${n.prio?'★':'☆'}</button>${n.type==='idee'?`<button class="btn ghost small" data-act="note-todo" data-id="${esc(n.id)}">→ Aufgabe</button>`:''}<button class="btn ghost small" data-act="edit-note" data-id="${esc(n.id)}">Bearbeiten</button><button class="btn ghost small danger" data-act="del-note" data-id="${esc(n.id)}">Löschen</button>`:''}</div>
+  </div>`;
+}
+function renderNoteList(){
+  const box=$('#n-list'); if(!box) return;
+  const N=S.nt, f=N.filter;
+  const byRoom=n=>!N.room||(n.roomId||'_')===N.room;
+  const sec=(title,list)=>list.length?`<div class="nsec"><h3>${title} <span class="mono small">${list.length}</span></h3>${list.map(noteRow).join('')}</div>`:'';
+  let html='';
+  if(!f||f==='todo'){
+    html+=sec('Offene Aufgaben',openTodos().filter(byRoom));
+    if(N.showDone) html+=sec('Erledigt',S.notes.filter(n=>n.type==='todo'&&n.done&&byRoom(n)).sort((a,b)=>(b.doneAt||0)-(a.doneAt||0)));
+  }
+  const rest=t=>S.notes.filter(n=>n.type===t&&byRoom(n)).sort((a,b)=>(b.prio?1:0)-(a.prio?1:0)||(b.createdAt||0)-(a.createdAt||0));
+  if(!f||f==='idee') html+=sec('Ideen',rest('idee'));
+  if(!f||f==='notiz') html+=sec('Notizen',rest('notiz'));
+  box.innerHTML=html||`<div class="empty">${S.notes.length?'Nichts in dieser Auswahl.':'Noch leer. Schreib oben einfach los: was noch zu tun ist, was dir einfällt, was du nicht vergessen willst.'}</div>`;
+  const done=S.notes.filter(n=>n.type==='todo'&&n.done).length;
+  const sd=$('#n-showdone-l'); if(sd) sd.hidden=!done;
+}
+function renderNotes(){
+  const el=$('#v-notizen'), N=S.nt, can=db&&canWrite;
+  if(!$('#qn-form')||!el.contains($('#qn-form'))||!(document.activeElement&&el.contains(document.activeElement))){
+    const opt=(v,l,s)=>`<option value="${esc(v)}"${v===s?' selected':''}>${esc(l)}</option>`;
+    el.innerHTML=`<div class="head-row"><h2>Notizen &amp; Aufgaben</h2></div>
+      ${can?`<form class="qn" id="qn-form">
+        <div class="seg" role="group" aria-label="Art">${NTYPES.map(t=>`<button type="button" data-act="qn-type" data-t="${t[0]}" aria-pressed="${N.type===t[0]}">${t[2]} ${t[1]}</button>`).join('')}</div>
+        <div class="qn-row"><textarea id="qn-text" rows="1" placeholder="${N.type==='todo'?'Was muss noch gemacht werden?':N.type==='idee'?'Idee festhalten …':'Notiz …'}" aria-label="Text"></textarea>
+          <select id="qn-room" aria-label="Raum">${opt('','Kein Raum',N.qroom)}${S.rooms.map(r=>opt(r.id,r.name,N.qroom)).join('')}</select>
+          <button class="btn pri" type="submit">Hinzufügen</button></div>
+        <div class="small muted">Enter speichert, Umschalt+Enter macht eine neue Zeile.</div>
+      </form>`:''}
+      <div class="head-row"><div class="filters">
+        <div class="seg" role="group" aria-label="Filter">${[['','Alle'],...NTYPES.map(t=>[t[0],t[1]==='Idee'?'Ideen':t[1]==='Aufgabe'?'Aufgaben':'Notizen'])].map(([v,l])=>`<button type="button" data-act="n-filter" data-f="${v}" aria-pressed="${N.filter===v}">${l}</button>`).join('')}</div>
+        <select id="n-room" aria-label="Raum filtern">${opt('','Alle Räume',N.room)}${S.rooms.map(r=>opt(r.id,r.name,N.room)).join('')}${opt('_','Ohne Raum',N.room)}</select>
+      </div><label class="chk small" id="n-showdone-l"><input type="checkbox" id="n-showdone"${N.showDone?' checked':''}> Erledigte zeigen</label></div>
+      <div id="n-list"></div>`;
+  }
+  renderNoteList();
+}
+async function addQuickNote(){
+  const ta=$('#qn-text'), text=ta.value.trim(); if(!text) return;
+  ta.value='';
+  try{ await db.collection('notes').doc().set({text,type:S.nt.type,roomId:$('#qn-room').value,done:false,prio:false,createdAt:Date.now()}); toast('Gespeichert'); }
+  catch(e){ ta.value=text; toast(e&&e.code==='invalid_argument'?'Keine Schreibrechte':'Speichern fehlgeschlagen'); }
+  ta.focus();
+}
+function noteForm(n){
+  openSheet('Notiz bearbeiten', `
+    <div class="fr">${sel('no-type','Art',NTYPES.map(t=>[t[0],t[1]]),n.type)}${sel('no-room','Raum',roomOpts(),n.roomId||'')}</div>
+    ${area('no-text','Text',n.text)}
+    <label class="chk"><input type="checkbox" id="no-prio"${n.prio?' checked':''}> Wichtig</label>
+  `,{onSave:async()=>{
+    const text=$('#no-text').value.trim(); if(!text) throw new Error('Der Text ist leer.');
+    await db.collection('notes').doc(n.id).update({text,type:$('#no-type').value,roomId:$('#no-room').value,prio:$('#no-prio').checked}); toast('Gespeichert');
+  }});
+}
+
 /* ---------- 3D-Raum ---------- */
 const iso={yaw:-0.7,pitch:0.55};
 function initIso(cv,r,c){
@@ -1003,6 +1097,12 @@ document.addEventListener('click',async ev=>{
   else if(a==='zoom'){ S.inst.zoom=Math.max(1,Math.min(4,S.inst.zoom+(+b.dataset.d)*0.5)); renderInstall(); }
   else if(a==='toggle-kind'){ const k=b.dataset.k, h=S.inst.hide; S.inst.hide=h.includes(k)?h.filter(x=>x!==k):[...h,k]; renderInstall(); }
   else if(a==='edit-plan') planForm();
+  else if(a==='qn-type'){ S.nt.type=b.dataset.t; document.querySelectorAll('[data-act=qn-type]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.t===S.nt.type)); const ta=$('#qn-text'); ta.placeholder=S.nt.type==='todo'?'Was muss noch gemacht werden?':S.nt.type==='idee'?'Idee festhalten …':'Notiz …'; ta.focus(); }
+  else if(a==='n-filter'){ S.nt.filter=b.dataset.f; document.querySelectorAll('[data-act=n-filter]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.f===S.nt.filter)); renderNoteList(); }
+  else if(a==='note-done'){ const n=find(S.notes); if(n) db.collection('notes').doc(id).update({done:b.checked,doneAt:b.checked?Date.now():null}).then(()=>{ if(b.checked) toast('Erledigt ✓'); }).catch(()=>toast('Speichern fehlgeschlagen')); }
+  else if(a==='note-prio'){ const n=find(S.notes); if(n) db.collection('notes').doc(id).update({prio:!n.prio}).catch(()=>toast('Speichern fehlgeschlagen')); }
+  else if(a==='note-todo'){ db.collection('notes').doc(id).update({type:'todo',done:false}).then(()=>toast('Als Aufgabe übernommen')).catch(()=>toast('Speichern fehlgeschlagen')); }
+  else if(a==='edit-note') noteForm(find(S.notes));
   else if(a==='new-event') eventForm({date:b.dataset.d||S.cal.sel||today(),contactId:b.dataset.contact||''});
   else if(a==='edit-event') eventForm(find(S.events));
   else if(a==='pick-day'){ S.cal.sel=b.dataset.d; if(b.dataset.d.slice(0,7)!==S.cal.month) S.cal.month=b.dataset.d.slice(0,7); renderCal(); }
@@ -1033,8 +1133,8 @@ document.addEventListener('click',async ev=>{
       try{ await db.collection('rooms').doc(r.id).update({plans:(r.plans||[]).filter(x=>x.id!==id)}); try{ await assets.delete(id); }catch{} S.inst.plan=null; closeSheet(false); toast('Plan gelöscht'); }catch{ toast('Löschen fehlgeschlagen'); }
       return;
     }
-    const coll={'del-entry':'entries','del-cost':'costs','del-room':'rooms','del-point':'install','del-event':'events','del-contact':'contacts'}[a];
-    const item=find({entries:S.entries,costs:S.costs,install:S.points,rooms:S.rooms,events:S.events,contacts:S.contacts}[coll]);
+    const coll={'del-entry':'entries','del-cost':'costs','del-room':'rooms','del-point':'install','del-event':'events','del-contact':'contacts','del-note':'notes'}[a];
+    const item=find({entries:S.entries,costs:S.costs,install:S.points,rooms:S.rooms,events:S.events,contacts:S.contacts,notes:S.notes}[coll]);
     if(coll==='install') S.inst.sel=null;
     try{
       await db.collection(coll).doc(id).delete();
@@ -1047,12 +1147,17 @@ document.addEventListener('change',ev=>{
   const t=ev.target;
   if(t.id==='ff-input') handleFiles(t);
   else if(t.id==='plan-input') uploadPlan(t);
+  else if(t.id==='n-room'){ S.nt.room=t.value; renderNoteList(); }
+  else if(t.id==='qn-room'){ S.nt.qroom=t.value; }
+  else if(t.id==='n-showdone'){ S.nt.showDone=t.checked; renderNoteList(); }
   else if(t.id==='ct-trade'){ S.ct.trade=t.value; renderContactList(); }
   else if(t.id==='i-room'){ S.inst.room=t.value; S.inst.plan=null; S.inst.sel=null; S.inst.placing=false; S.inst.move=null; renderInstall(); }
   else if(t.id==='f-room'||t.id==='f-cat'||t.id==='f-status'){ S.filter[{"f-room":'room','f-cat':'cat','f-status':'status'}[t.id]]=t.value; renderCosts(); }
 });
 document.addEventListener('input',ev=>{ if(ev.target.id==='ct-q'){ S.ct.q=ev.target.value; renderContactList(); } });
+document.addEventListener('keydown',ev=>{ if(ev.target.id==='qn-text'&&ev.key==='Enter'&&!ev.shiftKey&&!ev.isComposing){ ev.preventDefault(); addQuickNote(); } });
 document.addEventListener('submit',async ev=>{
+  if(ev.target.id==='qn-form'){ ev.preventDefault(); addQuickNote(); return; }
   if(ev.target.id!=='sheet-form') return;
   ev.preventDefault();
   const err=$('#f-err'), btn=$('#f-save'); err.hidden=true; btn.disabled=true; btn.textContent='Speichere …';
@@ -1079,6 +1184,7 @@ async function start(){
   sub('rooms','rooms',(a,b)=>(a.order||0)-(b.order||0));
   sub('entries','entries');
   sub('costs','costs');
+  sub('notes','notes');
   sub('events','events',sortEv);
   sub('contacts','contacts');
   sub('install','points',(a,b)=>(a.createdAt||0)-(b.createdAt||0));
