@@ -27,6 +27,7 @@
   --ok-bg:#1D3326; --warn-bg:#3A2D1A; --bad-bg:#3B2222;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--body);margin:0}
 a{color:var(--blue)}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -137,6 +138,24 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
 
 .empty{padding:28px 16px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:var(--r)}
 
+/* Installation */
+.plan-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.plan-chip{border:1px solid var(--line);background:var(--surface);border-radius:16px;padding:4px 12px;cursor:pointer;font-size:14px}
+.plan-chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.stage-wrap{overflow:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--sunk);max-height:75vh}
+.stage{position:relative;min-width:100%}
+.stage img{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none}
+.stage.placing{cursor:crosshair;outline:3px solid var(--accent);outline-offset:-3px}
+.pin{position:absolute;transform:translate(-50%,-50%);min-width:28px;height:28px;padding:0 6px;border-radius:14px;border:2px solid #fff;color:#fff;font:600 12px/24px var(--mono);text-align:center;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.45)}
+.pin[aria-current="true"]{outline:3px solid var(--accent);outline-offset:1px;z-index:2}
+.kdot{display:inline-block;min-width:24px;height:22px;padding:0 5px;border-radius:11px;color:#fff;font:600 11px/22px var(--mono);text-align:center}
+.legend{display:flex;flex-wrap:wrap;gap:6px}
+.legend button{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:2px 10px 2px 3px;cursor:pointer;font-size:13px}
+.legend button[aria-pressed="false"]{opacity:.45}
+.pt-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;cursor:pointer}
+.pt-row[aria-current="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.hint{font-size:12px;color:var(--muted);background:var(--sunk);border-radius:var(--r);padding:8px 10px}
+
 /* Formular-Sheet */
 .overlay{position:fixed;inset:0;background:rgba(10,14,15,.55);z-index:50;display:flex;justify-content:center;align-items:flex-end;padding-top:calc(env(safe-area-inset-top,0px) + 24px)}
 @media (min-width:720px){.overlay{align-items:center;padding:24px}}
@@ -180,6 +199,7 @@ legend{font:600 14px var(--display);letter-spacing:.06em;text-transform:uppercas
       <button class="tab" role="tab" data-tab="tagebuch" id="t-tagebuch">Tagebuch<span class="cnt" id="c-tagebuch"></span></button>
       <button class="tab" role="tab" data-tab="belege" id="t-belege">Belege &amp; Kosten<span class="cnt" id="c-belege"></span></button>
       <button class="tab" role="tab" data-tab="raeume" id="t-raeume">Räume &amp; Aufmaß<span class="cnt" id="c-raeume"></span></button>
+      <button class="tab" role="tab" data-tab="install" id="t-install">Installation<span class="cnt" id="c-install"></span></button>
     </nav>
   </div>
 </header>
@@ -190,6 +210,7 @@ legend{font:600 14px var(--display);letter-spacing:.06em;text-transform:uppercas
   <section class="view" id="v-tagebuch" hidden></section>
   <section class="view" id="v-belege" hidden></section>
   <section class="view" id="v-raeume" hidden></section>
+  <section class="view" id="v-install" hidden></section>
 </main>
 
 <div class="overlay" id="overlay" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
@@ -198,13 +219,14 @@ legend{font:600 14px var(--display);letter-spacing:.06em;text-transform:uppercas
 
 <script>
 (() => {
+const TABS = ['uebersicht','tagebuch','belege','raeume','install'];
 const CATS = ['Material','Werkzeug & Leihgeräte','Handwerker','Entsorgung','Sonstiges'];
 const STATUS = ['Bestellt','Geliefert','Bezahlt'];
 const EUR = new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'});
 const NUM = new Intl.NumberFormat('de-DE',{maximumFractionDigits:2});
 const DATE = new Intl.DateTimeFormat('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'});
 
-const S = {rooms:[],entries:[],costs:[],meta:{},tab:'uebersicht',room:null,filter:{room:'',cat:'',status:''},loaded:{rooms:false,entries:false,costs:false}};
+const S = {points:[],inst:{room:null,plan:null,zoom:1,placing:false,move:null,sel:null,hide:[]},rooms:[],entries:[],costs:[],meta:{},tab:'uebersicht',room:null,filter:{room:'',cat:'',status:''},loaded:{rooms:false,entries:false,costs:false}};
 let db=null, assets=null, downloads=null, canWrite=true;
 
 const $ = (s,r=document)=>r.querySelector(s);
@@ -225,13 +247,13 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.hidden=false; cle
 function setTab(t){
   S.tab=t;
   document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected', b.dataset.tab===t ? 'true':'false'));
-  ['uebersicht','tagebuch','belege','raeume'].forEach(v=>$('#v-'+v).hidden = v!==t);
+  TABS.forEach(v=>$('#v-'+v).hidden = v!==t);
   try{ localStorage.setItem('bt-tab',t); }catch{}
 }
 (function initialTab(){
   let t = (location.hash||'').slice(1);
-  if(!['uebersicht','tagebuch','belege','raeume'].includes(t)){ try{ t=localStorage.getItem('bt-tab')||''; }catch{} }
-  setTab(['uebersicht','tagebuch','belege','raeume'].includes(t)?t:'uebersicht');
+  if(!TABS.includes(t)){ try{ t=localStorage.getItem('bt-tab')||''; }catch{} }
+  setTab(TABS.includes(t)?t:'uebersicht');
 })();
 
 /* ---------- Render ---------- */
@@ -243,7 +265,8 @@ function render(){
   $('#c-belege').textContent = S.costs.length||'';
   $('#c-raeume').textContent = S.rooms.length||'';
   $('#btn-meta').hidden = !db || !canWrite;
-  renderOverview(); renderDiary(); renderCosts(); renderRooms();
+  $('#c-install').textContent = S.points.length||'';
+  renderOverview(); renderDiary(); renderCosts(); renderRooms(); renderInstall();
 }
 
 function statTile(k,v,s='',extra=''){ return `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:''}${extra}</div>`; }
@@ -380,7 +403,7 @@ function renderRooms(){
   if(!S.room||!S.rooms.find(r=>r.id===S.room)) S.room=S.rooms[0].id;
   html+=`<div class="rooms">${S.rooms.map(r=>{
     const c=roomCalc(r); const cost=S.costs.filter(x=>x.roomId===r.id).reduce((s,x)=>s+costAmount(x),0);
-    return `<button class="room-tile" data-act="pick-room" data-id="${esc(r.id)}" aria-current="${r.id===S.room}"><span class="n">${esc(r.name)}</span><span class="mono small">${c?NUM.format(c.A)+' m²':'Maße fehlen'}</span><span class="small muted">${EUR.format(cost)} · ${S.entries.filter(e=>e.roomId===r.id).length} Einträge</span></button>`;}).join('')}</div>`;
+    return `<button class="room-tile" data-act="pick-room" data-id="${esc(r.id)}" aria-current="${r.id===S.room}"><span class="n">${esc(r.name)}</span><span class="mono small">${c?NUM.format(c.A)+' m²':'Maße fehlen'}</span><span class="small muted">${EUR.format(cost)} · ${S.entries.filter(e=>e.roomId===r.id).length} Einträge · ${S.points.filter(p=>p.roomId===r.id).length} Install.-Punkte</span></button>`;}).join('')}</div>`;
   const r=S.rooms.find(x=>x.id===S.room); const c=roomCalc(r);
   const roomCosts=S.costs.filter(x=>x.roomId===r.id);
   const mat={};
@@ -415,6 +438,133 @@ function renderRooms(){
   </div>`;
   el.innerHTML=html;
   if(c&&c.H) initIso($('#iso'),r,c);
+}
+
+/* ---------- Installation ---------- */
+const KINDS=[
+  ['steckdose','Steckdose','SD','#D97F00'],['schalter','Schalter','SW','#B45F06'],['licht','Lichtauslass','L','#B89600'],
+  ['elektro','Elektroleitung / Abzweigdose','E','#7D5200'],['netz','Netzwerk / TV / Telefon','N','#7A4FC2'],
+  ['kw','Wasser kalt','KW','#1F78C8'],['ww','Wasser warm','WW','#CC3029'],['aw','Abwasser','AW','#6B5A48'],
+  ['heizung','Heizung','H','#E0563A'],['sonst','Sonstiges','?','#56666B']];
+const kind=k=>KINDS.find(x=>x[0]===k)||KINDS[KINDS.length-1];
+const kdot=(k,label)=>{ const d=kind(k); return `<span class="kdot" style="background:${d[3]}">${esc(label??d[2])}</span>`; };
+
+function renderInstall(){
+  const el=$('#v-install'), I=S.inst, can=db&&canWrite;
+  let html=`<div class="head-row"><h2>Installationsplan</h2></div>`;
+  if(!S.rooms.length){ el.innerHTML=html+`<div class="empty">Lege zuerst unter „Räume & Aufmaß“ einen Raum an.</div>`; return; }
+  if(!I.room||!S.rooms.find(r=>r.id===I.room)) I.room=S.room&&S.rooms.find(r=>r.id===S.room)?S.room:S.rooms[0].id;
+  const r=S.rooms.find(x=>x.id===I.room), plans=r.plans||[];
+  if(I.plan&&!plans.find(p=>p.id===I.plan)) I.plan=null;
+  if(!I.plan&&plans.length) I.plan=plans[0].id;
+  const plan=plans.find(p=>p.id===I.plan);
+  const pts=S.points.filter(p=>p.roomId===r.id);
+  const nr=id=>pts.findIndex(p=>p.id===id)+1;
+  const visible=p=>!I.hide.includes(p.kind);
+  html=`<div class="head-row"><h2>Installationsplan</h2><div class="actions">
+      <select id="i-room" aria-label="Raum" class="btn">${S.rooms.map(x=>`<option value="${esc(x.id)}"${x.id===r.id?' selected':''}>${esc(x.name)}</option>`).join('')}</select>
+      ${can&&assets?`<label class="btn" style="cursor:pointer">+ Grundriss / Wandfoto<input type="file" id="plan-input" accept="image/*" hidden></label>`:''}
+      ${can?`<button class="btn pri" data-act="new-point">+ Punkt</button>`:''}
+    </div></div>
+    <div class="hint">Tipp: Fotografiere jede Wand <b>vor dem Verputzen</b> mit angelegtem Zollstock, lade das Foto hier als „Wandfoto“ hoch und setze die Punkte direkt auf Dosen und Leitungen. Installationszonen nach DIN 18015-3: waagerecht 15–45 cm unter der Decke und über dem Fußboden, senkrecht 10–30 cm neben Ecken, Türen und Fenstern.</div>`;
+  if(plans.length){
+    html+=`<div class="plan-bar">${plans.map(p=>`<button class="plan-chip" data-act="pick-plan" data-id="${esc(p.id)}" aria-pressed="${p.id===I.plan}">${esc(p.name||'Plan')} <span class="muted small">${S.points.filter(x=>x.planId===p.id).length}</span></button>`).join('')}</div>`;
+  }
+  if(plan){
+    html+=`<div class="head-row"><div class="actions">
+        ${can?`<button class="btn ${I.placing?'pri':''}" data-act="toggle-place">${I.placing?(I.move?'Neue Position antippen … (abbrechen)':'Auf den Plan tippen … (abbrechen)'):'Punkt auf Plan setzen'}</button>`:''}
+        <button class="btn" data-act="zoom" data-d="-1" aria-label="Verkleinern">−</button><span class="mono small" style="align-self:center">${Math.round(I.zoom*100)} %</span><button class="btn" data-act="zoom" data-d="1" aria-label="Vergrößern">+</button>
+      </div>${can?`<button class="btn ghost small" data-act="edit-plan">Plan umbenennen / löschen</button>`:''}</div>
+      <div class="stage-wrap"><div class="stage${I.placing?' placing':''}" id="stage" style="width:${I.zoom*100}%">
+        <img src="/_blob/${esc(plan.id)}" alt="${esc(plan.name)}" draggable="false">
+        ${pts.filter(p=>p.planId===plan.id&&p.x!=null&&visible(p)).map(p=>`<button class="pin" data-act="pick-point" data-id="${esc(p.id)}" aria-current="${p.id===I.sel}" style="left:${p.x}%;top:${p.y}%;background:${kind(p.kind)[3]}" title="${esc(kind(p.kind)[1]+': '+(p.title||''))}">${nr(p.id)}</button>`).join('')}
+      </div></div>`;
+  } else {
+    html+=`<div class="empty">Noch kein Plan für ${esc(r.name)}. Lade einen Grundriss (z. B. Export aus Fusion als PNG), eine Handskizze oder ein Wandfoto hoch und markiere darauf Dosen, Leitungen und Rohre.</div>`;
+  }
+  const kindsUsed=KINDS.filter(k=>pts.some(p=>(p.kind||'sonst')===k[0]));
+  if(kindsUsed.length) html+=`<div class="legend">${kindsUsed.map(k=>`<button data-act="toggle-kind" data-k="${k[0]}" aria-pressed="${!I.hide.includes(k[0])}">${kdot(k[0])}${esc(k[1])} <span class="muted">${pts.filter(p=>(p.kind||'sonst')===k[0]).length}</span></button>`).join('')}</div>`;
+  const cur=pts.find(p=>p.id===I.sel);
+  if(cur){
+    const pl=plans.find(p=>p.id===cur.planId);
+    html+=`<article class="card" id="pt-detail">
+      <div class="card-h"><div><div class="ttl">${kdot(cur.kind,nr(cur.id))} ${esc(cur.title||kind(cur.kind)[1])}</div>
+        <div class="meta"><span>${esc(kind(cur.kind)[1])}</span>${cur.wall?`<span>Wand: ${esc(cur.wall)}</span>`:''}${num(cur.height)!=null?`<span class="mono">${fmtN(num(cur.height))} cm ab Fußboden</span>`:''}${num(cur.offset)!=null?`<span class="mono">${fmtN(num(cur.offset))} cm von ${esc(cur.offsetRef||'Ecke')}</span>`:''}${cur.date?`<span class="mono">${esc(fmtD(cur.date))}</span>`:''}${pl?`<span class="chip">${esc(pl.name)}</span>`:''}</div></div>
+        ${can?`<div class="actions"><button class="btn ghost small" data-act="edit-point" data-id="${esc(cur.id)}">Bearbeiten</button>${plans.length?`<button class="btn ghost small" data-act="move-point" data-id="${esc(cur.id)}">Position ändern</button>`:''}<button class="btn ghost small danger" data-act="del-point" data-id="${esc(cur.id)}">Löschen</button></div>`:''}</div>
+      ${cur.note?`<div class="txt">${esc(cur.note)}</div>`:''}
+      ${fileThumbs(cur.files)}
+    </article>`;
+  }
+  html+=pts.length?`<div class="list">${pts.filter(visible).map(p=>`<button class="pt-row" data-act="pick-point" data-id="${esc(p.id)}" aria-current="${p.id===I.sel}">
+      ${kdot(p.kind,nr(p.id))}
+      <span><b>${esc(p.title||kind(p.kind)[1])}</b><br><span class="small muted">${[kind(p.kind)[1],p.wall&&('Wand: '+p.wall),num(p.height)!=null&&(fmtN(num(p.height))+' cm hoch'),num(p.offset)!=null&&(fmtN(num(p.offset))+' cm von '+(p.offsetRef||'Ecke'))].filter(Boolean).map(esc).join(' · ')}</span></span>
+      <span class="small muted">${(p.files||[]).length?`${p.files.length} Foto${p.files.length===1?'':'s'}`:''}${p.planId&&p.x!=null?'':'<br>ohne Planposition'}</span>
+    </button>`).join('')}</div>`:`<p class="muted small">Noch keine Installationspunkte in diesem Raum.</p>`;
+  el.innerHTML=html;
+}
+
+async function uploadPlan(input){
+  const file=input.files[0]; input.value=''; if(!file) return;
+  const r=S.rooms.find(x=>x.id===S.inst.room); if(!r) return;
+  toast('Lade Plan hoch …');
+  try{
+    const f=await shrink(file,3200);
+    const res=await assets.upload(f,f.type?{type:f.type}:undefined);
+    const plans=[...(r.plans||[]),{id:res.id,name:file.name.replace(/\.\w+$/,'').slice(0,40)||'Plan',type:res.contentType}];
+    await db.collection('rooms').doc(r.id).update({plans});
+    S.inst.plan=res.id; toast('Plan gespeichert – jetzt Punkte setzen');
+  }catch(e){ toast(e&&e.code==='too_large'?'Bild zu groß (max. 20 MB).':e&&e.code==='unsupported_type'?'Bitte ein Bild (JPG/PNG) hochladen – PDF-Pläne vorher als Bild exportieren.':'Upload fehlgeschlagen'); }
+}
+
+function planForm(){
+  const r=S.rooms.find(x=>x.id===S.inst.room); const p=(r.plans||[]).find(x=>x.id===S.inst.plan); if(!p) return;
+  openSheet('Plan bearbeiten', `
+    ${fld('pl-name','Name',p.name,{ph:'z. B. Grundriss Elektro, Wand Fensterseite',wide:true})}
+    <div><button type="button" class="btn danger" data-act="del-plan" data-id="${esc(p.id)}">Plan löschen</button> <span class="small muted">Die Punkte bleiben erhalten, nur ohne Planposition.</span></div>
+  `,{onSave:async()=>{
+    const plans=(r.plans||[]).map(x=>x.id===p.id?{...x,name:$('#pl-name').value.trim()||'Plan'}:x);
+    await db.collection('rooms').doc(r.id).update({plans}); toast('Plan gespeichert');
+  }});
+}
+
+function pointForm(p={}){
+  const isNew=!p.id, r=S.rooms.find(x=>x.id===(p.roomId||S.inst.room));
+  const plans=(r&&r.plans)||[];
+  openSheet(isNew?'Neuer Installationspunkt':'Installationspunkt bearbeiten', `
+    <div class="fr">${sel('p-kind','Art',KINDS.map(k=>[k[0],k[1]]),p.kind||'steckdose')}${fld('p-date','Datum',p.date||today(),{type:'date'})}</div>
+    ${fld('p-title','Bezeichnung',p.title,{ph:'z. B. Doppelsteckdose TV-Wand, Leitung zum Lichtschalter',wide:true})}
+    <div class="fr">${fld('p-wall','Wand',p.wall,{ph:'z. B. Fensterwand, Wand zum Flur'})}${numF('p-height','Höhe ab Fußboden (cm)',p.height,'z. B. 30')}</div>
+    <div class="fr">${numF('p-offset','Abstand (cm)',p.offset,'z. B. 45')}${fld('p-ref','… gemessen von',p.offsetRef,{ph:'linker Ecke, Türzarge …'})}</div>
+    ${plans.length?sel('p-plan','Plan',[['','– ohne Plan –'],...plans.map(x=>[x.id,x.name||'Plan'])],p.planId??S.inst.plan??''):''}
+    ${area('p-note','Notiz',p.note,'Leitungsweg, Querschnitt (z. B. NYM-J 3×1,5), Stromkreis/Sicherung, Rohrdimension …')}
+    ${filesField(p.files,'Fotos (vor dem Verputzen, mit Zollstock)')}
+    <div class="hint">Installationszonen nach DIN 18015-3: waagerecht 15–45 cm unter Decke / über Fußboden, senkrecht 10–30 cm neben Ecken, Türen und Fenstern. Übliche Höhen: Steckdose 30 cm, Schalter 105 cm.</div>
+  `,{onCancel:()=>finishFiles(false),onSave:async()=>{
+    const planSel=$('#p-plan'); const planId=planSel?planSel.value:'';
+    const data={roomId:r.id,kind:$('#p-kind').value,date:$('#p-date').value||today(),title:$('#p-title').value.trim(),wall:$('#p-wall').value.trim(),
+      height:num($('#p-height').value),offset:num($('#p-offset').value),offsetRef:$('#p-ref').value.trim(),note:$('#p-note').value.trim(),
+      planId,x:planId&&planId===p.planId?(p.x??null):null,y:planId&&planId===p.planId?(p.y??null):null,
+      files:formFiles?formFiles.list:(p.files||[]),createdAt:p.createdAt||Date.now(),updatedAt:Date.now()};
+    const ref=p.id?db.collection('install').doc(p.id):db.collection('install').doc();
+    await ref.set(data); await finishFiles(true);
+    S.inst.sel=ref.id; if(planId) S.inst.plan=planId;
+    toast(isNew?'Punkt gespeichert':'Punkt aktualisiert');
+  }});
+}
+
+function stageClick(ev){
+  const I=S.inst, st=$('#stage'); if(!I.placing||!st) return false;
+  if(ev.target.closest('.pin')) return false;
+  const b=st.getBoundingClientRect();
+  const x=Math.round((ev.clientX-b.left)/b.width*1000)/10, y=Math.round((ev.clientY-b.top)/b.height*1000)/10;
+  if(x<0||x>100||y<0||y>100) return false;
+  I.placing=false;
+  if(I.move){
+    const id=I.move; I.move=null;
+    db.collection('install').doc(id).update({planId:I.plan,x,y}).then(()=>toast('Position gespeichert')).catch(()=>toast('Speichern fehlgeschlagen'));
+    renderInstall();
+  } else pointForm({roomId:I.room,planId:I.plan,x,y});
+  return true;
 }
 
 /* ---------- 3D-Raum ---------- */
@@ -522,11 +672,11 @@ function filesField(existing,label){
   if(!assets) return `<fieldset><legend>${label}</legend>${fileThumbs(formFiles.list)}<p class="muted small">Hochladen ist in dieser Ansicht nicht möglich (nur mit Bearbeitungsrecht).</p></fieldset>`;
   return `<fieldset><legend>${label}</legend><div id="ff-thumbs">${fileThumbs(formFiles.list,true)}</div><div class="upl"><input type="file" id="ff-input" multiple accept="image/*,application/pdf"><span class="small muted" id="ff-state"></span></div></fieldset>`;
 }
-async function shrink(file){
+async function shrink(file,max=2000){
   if(!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type)) return file;
   try{
     const bmp=await createImageBitmap(file);
-    const max=2000, k=Math.min(1,max/Math.max(bmp.width,bmp.height));
+    const k=Math.min(1,max/Math.max(bmp.width,bmp.height));
     if(k===1&&file.size<2.5e6&&file.type!=='image/heic') return file;
     const cv=document.createElement('canvas'); cv.width=Math.round(bmp.width*k); cv.height=Math.round(bmp.height*k);
     cv.getContext('2d').drawImage(bmp,0,0,cv.width,cv.height);
@@ -646,6 +796,7 @@ async function exportCsv(){
 /* ---------- Events ---------- */
 const armed=new Set();
 document.addEventListener('click',async ev=>{
+  if(stageClick(ev)) return;
   const b=ev.target.closest('[data-act],[data-tab]'); if(!b) return;
   if(b.dataset.tab){ setTab(b.dataset.tab); return; }
   const a=b.dataset.act, id=b.dataset.id;
@@ -658,6 +809,15 @@ document.addEventListener('click',async ev=>{
   else if(a==='edit-room') roomForm(find(S.rooms));
   else if(a==='edit-meta') metaForm();
   else if(a==='pick-room'){ S.room=id; renderRooms(); }
+  else if(a==='new-point') pointForm({roomId:S.inst.room});
+  else if(a==='edit-point') pointForm(find(S.points));
+  else if(a==='pick-point'){ const p=find(S.points); S.inst.sel=S.inst.sel===id?null:id; if(p&&p.planId&&S.inst.sel) S.inst.plan=p.planId; renderInstall(); if(S.inst.sel){ const d=$('#pt-detail'); if(d&&ev.target.closest('.pt-row')) d.scrollIntoView({block:'nearest',behavior:'smooth'}); } }
+  else if(a==='pick-plan'){ S.inst.plan=id; S.inst.placing=false; S.inst.move=null; renderInstall(); }
+  else if(a==='toggle-place'){ S.inst.placing=!S.inst.placing; if(!S.inst.placing) S.inst.move=null; renderInstall(); }
+  else if(a==='move-point'){ const p=find(S.points); if(p&&!p.planId&&!S.inst.plan) return; S.inst.move=id; S.inst.placing=true; if(p&&p.planId) S.inst.plan=p.planId; renderInstall(); toast('Tippe auf die neue Position im Plan'); }
+  else if(a==='zoom'){ S.inst.zoom=Math.max(1,Math.min(4,S.inst.zoom+(+b.dataset.d)*0.5)); renderInstall(); }
+  else if(a==='toggle-kind'){ const k=b.dataset.k, h=S.inst.hide; S.inst.hide=h.includes(k)?h.filter(x=>x!==k):[...h,k]; renderInstall(); }
+  else if(a==='edit-plan') planForm();
   else if(a==='export') exportCsv();
   else if(a==='close-sheet') closeSheet(true);
   else if(a==='lightbox'){ ev.preventDefault(); $('#lb-img').src=b.dataset.src; $('#lightbox').hidden=false; }
@@ -671,8 +831,14 @@ document.addEventListener('click',async ev=>{
     const key=a+id;
     if(!armed.has(key)){ armed.add(key); b.classList.add('armed'); b.textContent='Wirklich löschen?'; setTimeout(()=>{armed.delete(key); if(b.isConnected){b.classList.remove('armed'); b.textContent='Löschen';}},3500); return; }
     armed.delete(key);
-    const coll={'del-entry':'entries','del-cost':'costs','del-room':'rooms'}[a];
-    const item=find(coll==='entries'?S.entries:coll==='costs'?S.costs:S.rooms);
+    if(a==='del-plan'){
+      const r=S.rooms.find(x=>x.id===S.inst.room);
+      try{ await db.collection('rooms').doc(r.id).update({plans:(r.plans||[]).filter(x=>x.id!==id)}); try{ await assets.delete(id); }catch{} S.inst.plan=null; closeSheet(false); toast('Plan gelöscht'); }catch{ toast('Löschen fehlgeschlagen'); }
+      return;
+    }
+    const coll={'del-entry':'entries','del-cost':'costs','del-room':'rooms','del-point':'install'}[a];
+    const item=find(coll==='entries'?S.entries:coll==='costs'?S.costs:coll==='install'?S.points:S.rooms);
+    if(coll==='install') S.inst.sel=null;
     try{
       await db.collection(coll).doc(id).delete();
       if(assets&&item&&item.files) for(const f of item.files){ try{ await assets.delete(f.id); }catch{} }
@@ -683,6 +849,8 @@ document.addEventListener('click',async ev=>{
 document.addEventListener('change',ev=>{
   const t=ev.target;
   if(t.id==='ff-input') handleFiles(t);
+  else if(t.id==='plan-input') uploadPlan(t);
+  else if(t.id==='i-room'){ S.inst.room=t.value; S.inst.plan=null; S.inst.sel=null; S.inst.placing=false; S.inst.move=null; renderInstall(); }
   else if(t.id==='f-room'||t.id==='f-cat'||t.id==='f-status'){ S.filter[{"f-room":'room','f-cat':'cat','f-status':'status'}[t.id]]=t.value; renderCosts(); }
 });
 document.addEventListener('submit',async ev=>{
@@ -695,7 +863,7 @@ document.addEventListener('submit',async ev=>{
 $('#overlay').addEventListener('click',e=>{ if(e.target.id==='overlay') closeSheet(true); });
 $('#lightbox').addEventListener('click',()=>{ $('#lightbox').hidden=true; $('#lb-img').src=''; });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(!$('#lightbox').hidden) $('#lightbox').click(); else if(!$('#overlay').hidden) closeSheet(true); } });
-window.addEventListener('hashchange',()=>{ const t=location.hash.slice(1); if(['uebersicht','tagebuch','belege','raeume'].includes(t)) setTab(t); });
+window.addEventListener('hashchange',()=>{ const t=location.hash.slice(1); if(TABS.includes(t)) setTab(t); });
 
 /* ---------- Start ---------- */
 async function start(){
@@ -711,6 +879,7 @@ async function start(){
   sub('rooms','rooms',(a,b)=>(a.order||0)-(b.order||0));
   sub('entries','entries');
   sub('costs','costs');
+  sub('install','points',(a,b)=>(a.createdAt||0)-(b.createdAt||0));
   db.doc('meta/projekt').onSnapshot(s=>{ S.meta=s.exists?s.data():{}; render(); },fail);
 }
 start();
