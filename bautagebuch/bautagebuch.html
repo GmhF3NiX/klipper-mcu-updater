@@ -156,6 +156,39 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
 .pt-row[aria-current="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .hint{font-size:12px;color:var(--muted);background:var(--sunk);border-radius:var(--r);padding:8px 10px}
 
+/* Termine */
+.cal-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cal-head .mon{font:700 22px var(--display);text-transform:uppercase;letter-spacing:.03em;min-width:170px}
+.cal-wrap{overflow-x:auto}
+.cal{display:grid;grid-template-columns:34px repeat(7,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;min-width:320px}
+.cal .h{background:var(--sunk);font:600 12px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:center;padding:6px 0}
+.cal .kw{background:var(--sunk);font:500 11px var(--mono);color:var(--muted);display:flex;align-items:flex-start;justify-content:center;padding-top:8px}
+.cal .d{background:var(--surface);border:0;min-height:74px;padding:4px 5px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-width:0;border-radius:0}
+.cal .d.out{background:var(--bg);color:var(--muted)}
+.cal .d .n{font:500 13px var(--mono)}
+.cal .d.today .n{background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:0 6px;align-self:flex-start}
+.cal .d[aria-pressed="true"]{box-shadow:inset 0 0 0 2px var(--blue)}
+.cal .d.we{background:color-mix(in srgb,var(--surface) 88%,var(--sunk))}
+.ev-l{font-size:11px;line-height:1.3;padding:1px 4px;border-radius:3px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev-l.done{opacity:.5;text-decoration:line-through}
+.dots{display:none;gap:3px;flex-wrap:wrap}
+.dots i{width:7px;height:7px;border-radius:50%;display:block}
+.diary-mark{font-size:10px;color:var(--muted)}
+@media (max-width:640px){.cal .dm-t{display:none}.cal .d{min-height:52px}.cal .d .ev-l{display:none}.cal .d .dots{display:flex}}
+.ev-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start}
+.ev-date{font:500 13px var(--mono);text-align:center;min-width:52px;padding:4px 6px;border-radius:4px;background:var(--sunk)}
+.ev-date b{display:block;font:700 20px var(--display)}
+.ev-done{text-decoration:line-through;opacity:.6}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--ink)}
+.chk input{width:18px;height:18px}
+/* Kontakte */
+.contacts{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.kv{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;align-items:center;font-size:14px}
+.kv .k{color:var(--muted);font-size:12px}
+.kv .v{overflow-wrap:anywhere;user-select:text}
+.copy{border:1px solid var(--line);background:none;border-radius:4px;font-size:12px;padding:2px 8px;cursor:pointer;color:var(--muted)}
+.search{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:8px 10px;min-width:0;flex:1 1 180px;max-width:320px}
+
 /* Formular-Sheet */
 .overlay{position:fixed;inset:0;background:rgba(10,14,15,.55);z-index:50;display:flex;justify-content:center;align-items:flex-end;padding-top:calc(env(safe-area-inset-top,0px) + 24px)}
 @media (min-width:720px){.overlay{align-items:center;padding:24px}}
@@ -196,10 +229,12 @@ legend{font:600 14px var(--display);letter-spacing:.06em;text-transform:uppercas
     <div class="ruler" aria-hidden="true"></div>
     <nav class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="uebersicht" id="t-uebersicht">Übersicht</button>
+      <button class="tab" role="tab" data-tab="termine" id="t-termine">Termine<span class="cnt" id="c-termine"></span></button>
       <button class="tab" role="tab" data-tab="tagebuch" id="t-tagebuch">Tagebuch<span class="cnt" id="c-tagebuch"></span></button>
       <button class="tab" role="tab" data-tab="belege" id="t-belege">Belege &amp; Kosten<span class="cnt" id="c-belege"></span></button>
       <button class="tab" role="tab" data-tab="raeume" id="t-raeume">Räume &amp; Aufmaß<span class="cnt" id="c-raeume"></span></button>
       <button class="tab" role="tab" data-tab="install" id="t-install">Installation<span class="cnt" id="c-install"></span></button>
+      <button class="tab" role="tab" data-tab="kontakte" id="t-kontakte">Kontakte<span class="cnt" id="c-kontakte"></span></button>
     </nav>
   </div>
 </header>
@@ -211,6 +246,8 @@ legend{font:600 14px var(--display);letter-spacing:.06em;text-transform:uppercas
   <section class="view" id="v-belege" hidden></section>
   <section class="view" id="v-raeume" hidden></section>
   <section class="view" id="v-install" hidden></section>
+  <section class="view" id="v-termine" hidden></section>
+  <section class="view" id="v-kontakte" hidden></section>
 </main>
 
 <div class="overlay" id="overlay" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
@@ -219,14 +256,14 @@ legend{font:600 14px var(--display);letter-spacing:.06em;text-transform:uppercas
 
 <script>
 (() => {
-const TABS = ['uebersicht','tagebuch','belege','raeume','install'];
+const TABS = ['uebersicht','termine','tagebuch','belege','raeume','install','kontakte'];
 const CATS = ['Material','Werkzeug & Leihgeräte','Handwerker','Entsorgung','Sonstiges'];
 const STATUS = ['Bestellt','Geliefert','Bezahlt'];
 const EUR = new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'});
 const NUM = new Intl.NumberFormat('de-DE',{maximumFractionDigits:2});
 const DATE = new Intl.DateTimeFormat('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'});
 
-const S = {points:[],inst:{room:null,plan:null,zoom:1,placing:false,move:null,sel:null,hide:[]},rooms:[],entries:[],costs:[],meta:{},tab:'uebersicht',room:null,filter:{room:'',cat:'',status:''},loaded:{rooms:false,entries:false,costs:false}};
+const S = {events:[],contacts:[],cal:{month:null,sel:null},ct:{q:'',trade:''},points:[],inst:{room:null,plan:null,zoom:1,placing:false,move:null,sel:null,hide:[]},rooms:[],entries:[],costs:[],meta:{},tab:'uebersicht',room:null,filter:{room:'',cat:'',status:''},loaded:{rooms:false,entries:false,costs:false}};
 let db=null, assets=null, downloads=null, canWrite=true;
 
 const $ = (s,r=document)=>r.querySelector(s);
@@ -246,7 +283,7 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.hidden=false; cle
 /* ---------- Tabs ---------- */
 function setTab(t){
   S.tab=t;
-  document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected', b.dataset.tab===t ? 'true':'false'));
+  document.querySelectorAll('.tab').forEach(b=>{ b.setAttribute('aria-selected', b.dataset.tab===t ? 'true':'false'); if(b.dataset.tab===t&&b.scrollIntoView) try{ b.scrollIntoView({block:'nearest',inline:'nearest'}); }catch{} });
   TABS.forEach(v=>$('#v-'+v).hidden = v!==t);
   try{ localStorage.setItem('bt-tab',t); }catch{}
 }
@@ -266,7 +303,9 @@ function render(){
   $('#c-raeume').textContent = S.rooms.length||'';
   $('#btn-meta').hidden = !db || !canWrite;
   $('#c-install').textContent = S.points.length||'';
-  renderOverview(); renderDiary(); renderCosts(); renderRooms(); renderInstall();
+  const up=S.events.filter(e=>e.date>=today()&&!e.done).length;
+  $('#c-termine').textContent = up||''; $('#c-kontakte').textContent = S.contacts.length||'';
+  renderOverview(); renderDiary(); renderCosts(); renderRooms(); renderInstall(); renderCal(); renderContacts();
 }
 
 function statTile(k,v,s='',extra=''){ return `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:''}${extra}</div>`; }
@@ -307,6 +346,10 @@ function renderOverview(){
       <div class="panel"><h3>Nach Raum</h3>${bars(byRoom)}</div>
     </div>
     <div class="grid2">
+      <div class="panel" style="display:grid;gap:10px">
+        <div class="head-row"><h3>Nächste Termine</h3>${canWrite&&db?`<button class="btn" data-act="new-event">+ Termin</button>`:''}</div>
+        ${(()=>{ const up=S.events.filter(e=>e.date>=today()&&!e.done).sort(sortEv).slice(0,4); return up.length?up.map(e=>`<div><div class="meta"><span class="mono">${esc(fmtD(e.date))}</span><span class="mono">${esc(evTime(e))}</span><span class="chip" style="background:${ekind(e.kind)[2]};color:#fff">${esc(ekind(e.kind)[1])}</span></div><div style="font-weight:600">${esc(e.title)}</div>${e.contactId&&contactName(e.contactId)?`<div class="small muted">${esc(contactName(e.contactId))}</div>`:''}</div>`).join(''):`<p class="muted small">Keine anstehenden Termine.</p>`; })()}
+      </div>
       <div class="panel" style="display:grid;gap:10px">
         <div class="head-row"><h3>Zuletzt im Tagebuch</h3>${canWrite&&db?`<button class="btn" data-act="new-entry">+ Eintrag</button>`:''}</div>
         ${recent.length?recent.map(e=>`<div><div class="meta"><span class="mono">${esc(fmtD(e.date))}</span><span class="chip">${esc(roomName(e.roomId))}</span>${num(e.hours)?`<span class="mono">${fmtN(num(e.hours))} h</span>`:''}</div><div style="font-weight:600">${esc(e.title)}</div></div>`).join(''):`<p class="muted small">Noch keine Einträge.</p>`}
@@ -567,6 +610,146 @@ function stageClick(ev){
   return true;
 }
 
+/* ---------- Termine ---------- */
+const EKINDS=[['handwerker','Handwerker','#255A8C'],['lieferung','Lieferung','#B45F06'],['entsorgung','Entsorgung / Container','#6B5A48'],['abnahme','Abnahme / Behörde','#7A4FC2'],['eigen','Eigenleistung','#2E7D4F'],['sonst','Sonstiges','#56666B']];
+const ekind=k=>EKINDS.find(x=>x[0]===k)||EKINDS[EKINDS.length-1];
+const TRADES=['Elektriker','Sanitär / Heizung','Trockenbau','Maler','Fliesenleger','Tischler / Schreiner','Maurer / Putz','Estrich / Boden','Fenster / Türen','Dachdecker','Entsorgung / Container','Baumarkt / Händler','Architekt / Statik','Behörde / Energieberater','Sonstiges'];
+const MONTHS=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+const isoD=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const isoWeek=d=>{ const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); const n=t.getUTCDay()||7; t.setUTCDate(t.getUTCDate()+4-n); const y0=new Date(Date.UTC(t.getUTCFullYear(),0,1)); return Math.ceil(((t-y0)/864e5+1)/7); };
+const contactName=id=>{ const c=S.contacts.find(x=>x.id===id); return c?(c.company?`${c.name?c.name+' · ':''}${c.company}`:c.name):''; };
+const sortEv=(a,b)=>(a.date||'').localeCompare(b.date||'')||(a.time||'99').localeCompare(b.time||'99');
+const evTime=e=>e.time?(e.time+(e.timeEnd?'–'+e.timeEnd:'')+' Uhr'):'ganztägig';
+
+function evCard(e,showDate=true){
+  const k=ekind(e.kind), d=new Date(e.date+'T12:00:00');
+  return `<article class="card"><div class="ev-row">
+    ${showDate?`<div class="ev-date">${esc(DATE.format(d).split(',')[0])}<b>${d.getDate()}.</b>${esc(MONTHS[d.getMonth()].slice(0,3))}</div>`:`<span class="kdot" style="background:${k[2]}">&nbsp;</span>`}
+    <div style="min-width:0"><div class="ttl${e.done?' ev-done':''}" style="font-weight:600">${esc(e.title||k[1])}</div>
+      <div class="meta"><span class="mono">${esc(evTime(e))}</span><span class="chip" style="background:${k[2]};color:#fff">${esc(k[1])}</span>${e.roomId?`<span class="chip">${esc(roomName(e.roomId))}</span>`:''}${e.contactId&&contactName(e.contactId)?`<button class="btn ghost small" style="padding:0 4px;min-height:0" data-act="goto-contact" data-id="${esc(e.contactId)}">👤 ${esc(contactName(e.contactId))}</button>`:''}${e.done?'<span>erledigt</span>':''}</div>
+      ${e.note?`<div class="txt small">${esc(e.note)}</div>`:''}</div>
+    <div class="actions" style="flex-direction:column;align-items:flex-end">${db&&canWrite?`<button class="btn ghost small" data-act="edit-event" data-id="${esc(e.id)}">Bearbeiten</button><button class="btn ghost small danger" data-act="del-event" data-id="${esc(e.id)}">Löschen</button>`:''}${downloads?`<button class="btn ghost small" data-act="ics" data-id="${esc(e.id)}">In Kalender</button>`:''}</div>
+  </div></article>`;
+}
+
+function renderCal(){
+  const el=$('#v-termine'), C=S.cal, can=db&&canWrite;
+  const [y,m]=C.month.split('-').map(Number);
+  const first=new Date(y,m-1,1), off=(first.getDay()+6)%7, dim=new Date(y,m,0).getDate();
+  const rows=Math.ceil((off+dim)/7), t=today();
+  const byDay={}; S.events.forEach(e=>{ (byDay[e.date]=byDay[e.date]||[]).push(e); });
+  Object.values(byDay).forEach(l=>l.sort(sortEv));
+  const diaryDays=new Set(S.entries.map(e=>e.date));
+  let grid=`<div class="h">KW</div>${['Mo','Di','Mi','Do','Fr','Sa','So'].map(d=>`<div class="h">${d}</div>`).join('')}`;
+  for(let r=0;r<rows;r++){
+    const mon=new Date(y,m-1,1-off+r*7);
+    grid+=`<div class="kw">${isoWeek(mon)}</div>`;
+    for(let i=0;i<7;i++){
+      const d=new Date(y,m-1,1-off+r*7+i), ds=isoD(d), evs=byDay[ds]||[];
+      grid+=`<button class="d${d.getMonth()!==m-1?' out':''}${ds===t?' today':''}${i>4?' we':''}" data-act="pick-day" data-d="${ds}" aria-pressed="${ds===C.sel}" aria-label="${esc(fmtD(ds))}, ${evs.length} Termine">
+        <span class="n">${d.getDate()}</span>
+        ${evs.slice(0,3).map(e=>`<span class="ev-l${e.done?' done':''}" style="background:${ekind(e.kind)[2]}">${e.time?esc(e.time)+' ':''}${esc(e.title||ekind(e.kind)[1])}</span>`).join('')}${evs.length>3?`<span class="diary-mark">+${evs.length-3}</span>`:''}
+        <span class="dots">${evs.slice(0,5).map(e=>`<i style="background:${ekind(e.kind)[2]}"></i>`).join('')}</span>
+        ${diaryDays.has(ds)?`<span class="diary-mark">✎<span class="dm-t"> Tagebuch</span></span>`:''}
+      </button>`;
+    }
+  }
+  const selEv=(byDay[C.sel]||[]), selDiary=S.entries.filter(e=>e.date===C.sel);
+  const upcoming=S.events.filter(e=>e.date>=t&&!e.done).sort(sortEv).slice(0,10);
+  el.innerHTML=`<div class="head-row"><h2>Termine</h2><div class="actions">${downloads&&S.events.length?`<button class="btn" data-act="ics-all">Alle in Kalender (.ics)</button>`:''}${can?`<button class="btn pri" data-act="new-event">+ Termin</button>`:''}</div></div>
+    <div class="cal-head"><button class="btn" data-act="cal-nav" data-d="-1" aria-label="Vorheriger Monat">‹</button><span class="mon">${MONTHS[m-1]} ${y}</span><button class="btn" data-act="cal-nav" data-d="1" aria-label="Nächster Monat">›</button><button class="btn ghost small" data-act="cal-today">Heute</button></div>
+    <div class="cal-wrap"><div class="cal">${grid}</div></div>
+    <div class="legend">${EKINDS.map(k=>`<span class="chip" style="background:${k[2]};color:#fff">${esc(k[1])}</span>`).join('')}</div>
+    <div class="grid2">
+      <div style="display:grid;gap:10px;align-content:start">
+        <div class="head-row"><h3>${esc(fmtD(C.sel))}</h3>${can?`<button class="btn" data-act="new-event" data-d="${C.sel}">+ Termin an diesem Tag</button>`:''}</div>
+        ${selEv.length?selEv.map(e=>evCard(e,false)).join(''):`<p class="muted small">Keine Termine an diesem Tag.</p>`}
+        ${selDiary.length?`<div class="panel small"><b>Im Tagebuch:</b> ${selDiary.map(e=>esc(e.title)).join(', ')}</div>`:''}
+      </div>
+      <div style="display:grid;gap:10px;align-content:start"><h3>Anstehend</h3>${upcoming.length?upcoming.map(e=>evCard(e)).join(''):`<p class="muted small">Keine offenen Termine.</p>`}</div>
+    </div>`;
+}
+
+function eventForm(e={}){
+  const isNew=!e.id;
+  openSheet(isNew?'Neuer Termin':'Termin bearbeiten', `
+    ${fld('ev-title','Was?',e.title,{ph:'z. B. Elektriker: Zählerschrank, Lieferung Rigips',wide:true})}
+    <div class="fr">${fld('ev-date','Datum',e.date||S.cal.sel||today(),{type:'date'})}${fld('ev-time','Von (leer = ganztägig)',e.time,{type:'time'})}${fld('ev-end','Bis',e.timeEnd,{type:'time'})}</div>
+    <div class="fr">${sel('ev-kind','Art',EKINDS.map(k=>[k[0],k[1]]),e.kind||'handwerker')}${sel('ev-room','Raum',roomOpts(),e.roomId??'')}${sel('ev-contact','Kontakt',[['','– kein Kontakt –'],...S.contacts.map(c=>[c.id,contactName(c.id)])],e.contactId??'')}</div>
+    ${area('ev-note','Notiz',e.note,'Was vorbereiten? Was mitbringen? Zugang, Strom abschalten …')}
+    <label class="chk"><input type="checkbox" id="ev-done"${e.done?' checked':''}> Erledigt</label>
+  `,{onSave:async()=>{
+    const title=$('#ev-title').value.trim(); if(!title) throw new Error('Bitte angeben, worum es geht.');
+    const data={title,date:$('#ev-date').value||today(),time:$('#ev-time').value,timeEnd:$('#ev-end').value,kind:$('#ev-kind').value,roomId:$('#ev-room').value,contactId:$('#ev-contact').value,note:$('#ev-note').value.trim(),done:$('#ev-done').checked,createdAt:e.createdAt||Date.now(),updatedAt:Date.now()};
+    await save('events',e.id,data); S.cal.sel=data.date; S.cal.month=data.date.slice(0,7); toast(isNew?'Termin gespeichert':'Termin aktualisiert');
+  }});
+}
+
+function icsFor(list){
+  const x=s=>String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n');
+  const dt=(d,t)=>d.replace(/-/g,'')+(t?'T'+t.replace(':','')+'00':'');
+  const next=d=>{ const n=new Date(d+'T12:00:00'); n.setDate(n.getDate()+1); return isoD(n); };
+  const stamp=new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';
+  const ev=list.map(e=>{
+    const start=e.time?`DTSTART:${dt(e.date,e.time)}`:`DTSTART;VALUE=DATE:${dt(e.date)}`;
+    const end=e.time?`DTEND:${dt(e.date,e.timeEnd||(String(Math.min(23,+e.time.slice(0,2)+1)).padStart(2,'0')+e.time.slice(2)))}`:`DTEND;VALUE=DATE:${dt(next(e.date))}`;
+    const desc=[ekind(e.kind)[1],e.contactId&&contactName(e.contactId),e.note].filter(Boolean).join('\n');
+    return ['BEGIN:VEVENT',`UID:${e.id}@bautagebuch-eg`,`DTSTAMP:${stamp}`,start,end,`SUMMARY:${x(e.title)}`,desc?`DESCRIPTION:${x(desc)}`:'',e.roomId?`LOCATION:${x(roomName(e.roomId))}`:'','END:VEVENT'].filter(Boolean).join('\r\n');
+  });
+  return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Bautagebuch EG//DE','CALSCALE:GREGORIAN',...ev,'END:VCALENDAR'].join('\r\n')+'\r\n';
+}
+async function saveIcs(list,name){
+  try{ const r=await downloads.save({filename:name,data:new Blob([icsFor(list)],{type:'text/calendar'})}); if(r&&r.status==='saved') toast('Kalenderdatei gespeichert – zum Importieren öffnen'); }
+  catch(e){ if(e&&e.code!=='cancelled'&&e.code!=='declined') toast('Export nicht möglich'); }
+}
+
+/* ---------- Kontakte ---------- */
+function contactCard(c){
+  const evs=S.events.filter(e=>e.contactId===c.id).sort(sortEv), next=evs.find(e=>e.date>=today()&&!e.done);
+  const costs=S.costs.filter(k=>k.contactId===c.id), sum=costs.reduce((s,k)=>s+costAmount(k),0);
+  const line=(k,v,copy,href)=>v?`<span class="k">${k}</span><span class="v">${href?`<a href="${esc(href)}"${href.startsWith('http')?' target="_blank" rel="noopener"':''}>${esc(v)}</a>`:esc(v)}</span>${copy?`<button class="copy" data-act="copy" data-v="${esc(v)}">Kopieren</button>`:'<span></span>'}`:'';
+  return `<article class="card" id="ct-${esc(c.id)}">
+    <div class="card-h"><div style="min-width:0"><div class="ttl">${esc(c.name||c.company)}</div>${c.company&&c.name?`<div class="muted small">${esc(c.company)}</div>`:''}<div class="meta" style="margin-top:4px"><span class="chip">${esc(c.trade||'Sonstiges')}</span>${c.rating?`<span title="Bewertung">${'★'.repeat(c.rating)}${'☆'.repeat(5-c.rating)}</span>`:''}</div></div>${rowActions('contact',c.id)}</div>
+    <div class="kv">${line('Telefon',c.phone,true,c.phone?'tel:'+c.phone.replace(/[^\d+]/g,''):'')}${line('Mobil',c.mobile,true,c.mobile?'tel:'+c.mobile.replace(/[^\d+]/g,''):'')}${line('E-Mail',c.email,true,'')}${line('Web',c.web?host(url(c.web)):'',false,c.web?url(c.web):'')}${line('Adresse',c.address,true,'')}</div>
+    ${c.note?`<div class="txt small">${esc(c.note)}</div>`:''}
+    ${(next||sum)?`<div class="meta">${next?`<span>Nächster Termin: <b>${esc(fmtD(next.date))}</b> ${esc(next.title)}</span>`:''}${sum?`<span>Belege: <b class="mono">${EUR.format(sum)}</b> (${costs.length})</span>`:''}</div>`:''}
+    ${db&&canWrite?`<div><button class="btn ghost small" data-act="new-event" data-contact="${esc(c.id)}">+ Termin mit ${esc(c.name||c.company)}</button></div>`:''}
+  </article>`;
+}
+function renderContactList(){
+  const box=$('#ct-list'); if(!box) return;
+  const q=(S.ct.q||'').toLowerCase();
+  const list=S.contacts.filter(c=>(!S.ct.trade||(c.trade||'Sonstiges')===S.ct.trade)&&(!q||[c.name,c.company,c.trade,c.note,c.phone,c.email].join(' ').toLowerCase().includes(q)))
+    .sort((a,b)=>(a.trade||'').localeCompare(b.trade||'')||(a.name||a.company||'').localeCompare(b.name||b.company||''));
+  box.innerHTML=list.length?`<div class="contacts">${list.map(contactCard).join('')}</div>`:`<div class="empty">${S.contacts.length?'Kein Kontakt passt zur Suche.':'Noch keine Kontakte. Leg Elektriker, Installateur, Händler und Container-Dienst an – dann hast du alle Nummern an einem Ort.'}</div>`;
+}
+function renderContacts(){
+  const el=$('#v-kontakte'), can=db&&canWrite;
+  const used=TRADES.filter(t=>S.contacts.some(c=>(c.trade||'Sonstiges')===t));
+  if(!document.activeElement||document.activeElement.id!=='ct-q'||!$('#ct-list')){
+    el.innerHTML=`<div class="head-row"><h2>Kontakte</h2>${can?`<button class="btn pri" data-act="new-contact">+ Kontakt</button>`:''}</div>
+    <div class="filters"><input class="search" id="ct-q" type="search" placeholder="Suchen …" value="${esc(S.ct.q||'')}" aria-label="Kontakte suchen">
+      <select id="ct-trade" aria-label="Gewerk"><option value="">Alle Gewerke</option>${used.map(t=>`<option${t===S.ct.trade?' selected':''}>${esc(t)}</option>`).join('')}</select></div>
+    <div id="ct-list"></div>`;
+  }
+  renderContactList();
+}
+function contactForm(c={}){
+  const isNew=!c.id;
+  openSheet(isNew?'Neuer Kontakt':'Kontakt bearbeiten', `
+    <div class="fr">${fld('ct-name','Name / Ansprechpartner',c.name,{ph:'z. B. Herr Meier'})}${fld('ct-company','Firma',c.company,{ph:'z. B. Elektro Meier GmbH'})}</div>
+    <div class="fr">${sel('ct-tr','Gewerk',TRADES.map(t=>[t,t]),c.trade||'Elektriker')}${sel('ct-rate','Bewertung',[['0','–'],['1','★'],['2','★★'],['3','★★★'],['4','★★★★'],['5','★★★★★']],String(c.rating||0))}</div>
+    <div class="fr">${fld('ct-phone','Telefon',c.phone,{type:'tel'})}${fld('ct-mobile','Mobil',c.mobile,{type:'tel'})}</div>
+    <div class="fr">${fld('ct-email','E-Mail',c.email,{type:'email'})}${fld('ct-web','Webseite',c.web,{type:'url',ph:'https://…'})}</div>
+    ${fld('ct-addr','Adresse',c.address,{wide:true})}
+    ${area('ct-note','Notiz',c.note,'Angebot vom …, Stundensatz, Erreichbarkeit, Empfehlung von …')}
+  `,{onSave:async()=>{
+    const data={name:$('#ct-name').value.trim(),company:$('#ct-company').value.trim(),trade:$('#ct-tr').value,rating:+$('#ct-rate').value||0,phone:$('#ct-phone').value.trim(),mobile:$('#ct-mobile').value.trim(),email:$('#ct-email').value.trim(),web:$('#ct-web').value.trim(),address:$('#ct-addr').value.trim(),note:$('#ct-note').value.trim(),createdAt:c.createdAt||Date.now(),updatedAt:Date.now()};
+    if(!data.name&&!data.company) throw new Error('Bitte Name oder Firma angeben.');
+    await save('contacts',c.id,data); toast(isNew?'Kontakt gespeichert':'Kontakt aktualisiert');
+  }});
+}
+
 /* ---------- 3D-Raum ---------- */
 const iso={yaw:-0.7,pitch:0.55};
 function initIso(cv,r,c){
@@ -740,12 +923,14 @@ function costForm(c={}){
     <div class="fr">${numF('c-amount','Betrag brutto (€)',c.amount,'leer = Summe der Positionen')}${numF('c-labor','davon Lohnanteil (€)',c.labor,'nur Handwerker, § 35a')}</div>
     ${rowsField('c-items','Positionen / Material',[{k:'name',label:'Artikel',w:'2fr'},{k:'qty',label:'Menge',w:'.8fr',num:true},{k:'unit',label:'Einh.',w:'.7fr'},{k:'price',label:'€/Einh.',w:'.9fr',num:true}],c.items)}
     ${filesField(c.files,'Kassenbon, Rechnung, Bestellbestätigung')}
+    ${S.contacts.length?sel('c-contact','Kontakt / Firma',[['','– kein Kontakt –'],...S.contacts.map(k=>[k.id,contactName(k.id)])],c.contactId??''):''}
     ${fld('c-link','Link zur Bestellung',c.link,{ph:'https://…',wide:true,type:'url'})}
     ${area('c-note','Notiz',c.note,'z. B. Lieferung erwartet am …, Rückgabe bis …')}
   `,{onCancel:()=>finishFiles(false),onSave:async()=>{
     const items=readRows('c-items');
     const data={date:$('#c-date').value||today(),vendor:$('#c-vendor').value.trim(),title:$('#c-title').value.trim(),roomId:$('#c-room').value,category:$('#c-cat').value,status:$('#c-status').value,
-      amount:num($('#c-amount').value),labor:num($('#c-labor').value),items,files:formFiles?formFiles.list:(c.files||[]),link:$('#c-link').value.trim(),note:$('#c-note').value.trim(),createdAt:c.createdAt||Date.now(),updatedAt:Date.now()};
+      amount:num($('#c-amount').value),labor:num($('#c-labor').value),items,files:formFiles?formFiles.list:(c.files||[]),link:$('#c-link').value.trim(),note:$('#c-note').value.trim(),contactId:$('#c-contact')?$('#c-contact').value:(c.contactId||''),createdAt:c.createdAt||Date.now(),updatedAt:Date.now()};
+    if(!data.vendor&&data.contactId){ const k=S.contacts.find(x=>x.id===data.contactId); if(k) data.vendor=k.company||k.name; }
     if(!data.title&&!data.vendor) throw new Error('Bitte Händler oder Bezeichnung angeben.');
     if(data.amount==null&&!items.some(i=>i.qty&&i.price)) throw new Error('Bitte einen Betrag eintragen oder Positionen mit Menge und Preis.');
     await save('costs',c.id,data); await finishFiles(true); toast(isNew?'Beleg gespeichert':'Beleg aktualisiert');
@@ -818,6 +1003,18 @@ document.addEventListener('click',async ev=>{
   else if(a==='zoom'){ S.inst.zoom=Math.max(1,Math.min(4,S.inst.zoom+(+b.dataset.d)*0.5)); renderInstall(); }
   else if(a==='toggle-kind'){ const k=b.dataset.k, h=S.inst.hide; S.inst.hide=h.includes(k)?h.filter(x=>x!==k):[...h,k]; renderInstall(); }
   else if(a==='edit-plan') planForm();
+  else if(a==='new-event') eventForm({date:b.dataset.d||S.cal.sel||today(),contactId:b.dataset.contact||''});
+  else if(a==='edit-event') eventForm(find(S.events));
+  else if(a==='pick-day'){ S.cal.sel=b.dataset.d; if(b.dataset.d.slice(0,7)!==S.cal.month) S.cal.month=b.dataset.d.slice(0,7); renderCal(); }
+  else if(a==='cal-nav'){ const [y,m]=S.cal.month.split('-').map(Number); S.cal.month=isoD(new Date(y,m-1+(+b.dataset.d),1)).slice(0,7); renderCal(); }
+  else if(a==='cal-today'){ S.cal.sel=today(); S.cal.month=today().slice(0,7); renderCal(); }
+  else if(a==='ics'){ const e=find(S.events); if(e) saveIcs([e],'Termin-'+e.date+'.ics'); }
+  else if(a==='ics-all') saveIcs(S.events.filter(e=>e.date>=today()),'Bautermine.ics');
+  else if(a==='new-contact') contactForm();
+  else if(a==='edit-contact') contactForm(find(S.contacts));
+  else if(a==='goto-contact'){ setTab('kontakte'); S.ct.q=''; S.ct.trade=''; renderContacts(); const c=$('#ct-'+id); if(c){ c.scrollIntoView({block:'center'}); c.style.boxShadow='0 0 0 2px var(--accent)'; setTimeout(()=>c.style.boxShadow='',1600);} }
+  else if(a==='copy'){ const v=b.dataset.v; const done=()=>{ b.textContent='Kopiert'; setTimeout(()=>b.textContent='Kopieren',1400); };
+    try{ navigator.clipboard.writeText(v).then(done,()=>{ const r=document.createRange(); r.selectNodeContents(b.previousElementSibling); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toast('Markiert – jetzt kopieren'); }); }catch{ toast(v); } }
   else if(a==='export') exportCsv();
   else if(a==='close-sheet') closeSheet(true);
   else if(a==='lightbox'){ ev.preventDefault(); $('#lb-img').src=b.dataset.src; $('#lightbox').hidden=false; }
@@ -836,8 +1033,8 @@ document.addEventListener('click',async ev=>{
       try{ await db.collection('rooms').doc(r.id).update({plans:(r.plans||[]).filter(x=>x.id!==id)}); try{ await assets.delete(id); }catch{} S.inst.plan=null; closeSheet(false); toast('Plan gelöscht'); }catch{ toast('Löschen fehlgeschlagen'); }
       return;
     }
-    const coll={'del-entry':'entries','del-cost':'costs','del-room':'rooms','del-point':'install'}[a];
-    const item=find(coll==='entries'?S.entries:coll==='costs'?S.costs:coll==='install'?S.points:S.rooms);
+    const coll={'del-entry':'entries','del-cost':'costs','del-room':'rooms','del-point':'install','del-event':'events','del-contact':'contacts'}[a];
+    const item=find({entries:S.entries,costs:S.costs,install:S.points,rooms:S.rooms,events:S.events,contacts:S.contacts}[coll]);
     if(coll==='install') S.inst.sel=null;
     try{
       await db.collection(coll).doc(id).delete();
@@ -850,9 +1047,11 @@ document.addEventListener('change',ev=>{
   const t=ev.target;
   if(t.id==='ff-input') handleFiles(t);
   else if(t.id==='plan-input') uploadPlan(t);
+  else if(t.id==='ct-trade'){ S.ct.trade=t.value; renderContactList(); }
   else if(t.id==='i-room'){ S.inst.room=t.value; S.inst.plan=null; S.inst.sel=null; S.inst.placing=false; S.inst.move=null; renderInstall(); }
   else if(t.id==='f-room'||t.id==='f-cat'||t.id==='f-status'){ S.filter[{"f-room":'room','f-cat':'cat','f-status':'status'}[t.id]]=t.value; renderCosts(); }
 });
+document.addEventListener('input',ev=>{ if(ev.target.id==='ct-q'){ S.ct.q=ev.target.value; renderContactList(); } });
 document.addEventListener('submit',async ev=>{
   if(ev.target.id!=='sheet-form') return;
   ev.preventDefault();
@@ -867,6 +1066,7 @@ window.addEventListener('hashchange',()=>{ const t=location.hash.slice(1); if(TA
 
 /* ---------- Start ---------- */
 async function start(){
+  S.cal.sel=today(); S.cal.month=today().slice(0,7);
   render();
   const C=window.claude;
   if(!C||!C.use){ $('#status').innerHTML='<div class="banner">Speichern ist nur in der veröffentlichten Seite auf claude.ai möglich.</div>'; return; }
@@ -879,6 +1079,8 @@ async function start(){
   sub('rooms','rooms',(a,b)=>(a.order||0)-(b.order||0));
   sub('entries','entries');
   sub('costs','costs');
+  sub('events','events',sortEv);
+  sub('contacts','contacts');
   sub('install','points',(a,b)=>(a.createdAt||0)-(b.createdAt||0));
   db.doc('meta/projekt').onSnapshot(s=>{ S.meta=s.exists?s.data():{}; render(); },fail);
 }
