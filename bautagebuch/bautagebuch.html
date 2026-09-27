@@ -1,0 +1,718 @@
+<title>Bautagebuch EG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F1F2EE; --surface:#FFFFFF; --sunk:#E8EAE5; --ink:#1D2528; --muted:#5C686C; --line:#D5DAD4;
+  --accent:#F2B705; --accent-ink:#1D2528; --blue:#255A8C; --ok:#2E7D4F; --warn:#A8661A; --bad:#B23A3A;
+  --ok-bg:#E1EFE6; --warn-bg:#F6EBD9; --bad-bg:#F5E1E1;
+  --display:"Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r:6px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#141A1C; --surface:#1C2427; --sunk:#232C30; --ink:#E6EBE8; --muted:#98A4A7; --line:#2E393C;
+    --accent:#F2B705; --accent-ink:#1A1F21; --blue:#86B5E0; --ok:#6CC08F; --warn:#E3A857; --bad:#EE8A8A;
+    --ok-bg:#1D3326; --warn-bg:#3A2D1A; --bad-bg:#3B2222;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#141A1C; --surface:#1C2427; --sunk:#232C30; --ink:#E6EBE8; --muted:#98A4A7; --line:#2E393C;
+  --accent:#F2B705; --accent-ink:#1A1F21; --blue:#86B5E0; --ok:#6CC08F; --warn:#E3A857; --bad:#EE8A8A;
+  --ok-bg:#1D3326; --warn-bg:#3A2D1A; --bad-bg:#3B2222;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--body);margin:0}
+a{color:var(--blue)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.num,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* Kopf */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);border-bottom:1px solid var(--line)}
+.top-in{max-width:1080px;margin:0 auto;padding:14px 16px 0}
+.brand{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand h1{font:700 30px/1 var(--display);letter-spacing:.01em;margin:0;text-transform:uppercase}
+.brand p{margin:4px 0 0;color:var(--muted);font-size:13px}
+.ruler{height:10px;margin-top:12px;background:
+  repeating-linear-gradient(90deg,var(--accent-ink) 0 1px,transparent 1px 10px) bottom/100% 4px no-repeat,
+  repeating-linear-gradient(90deg,var(--accent-ink) 0 1px,transparent 1px 50px) bottom/100% 7px no-repeat,
+  repeating-linear-gradient(90deg,var(--accent) 0 100px,#F7D35A 100px 200px);
+  border-radius:2px;opacity:.95}
+nav.tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;padding-top:8px}
+nav.tabs::-webkit-scrollbar{display:none}
+.tab{border:0;background:none;padding:8px 12px 10px;font:600 17px/1 var(--display);letter-spacing:.04em;text-transform:uppercase;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tab .cnt{font:500 11px var(--mono);margin-left:4px;color:var(--muted)}
+
+main{max-width:1080px;margin:0 auto;padding:20px 16px 80px}
+.view{display:grid;gap:20px}
+h2{font:700 22px/1.1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:0;text-wrap:balance}
+h3{font:600 17px/1.2 var(--display);text-transform:uppercase;letter-spacing:.05em;margin:0;color:var(--muted)}
+.head-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:8px 14px;cursor:pointer;font-weight:500;text-decoration:none;color:var(--ink);min-height:38px}
+.btn:hover{border-color:var(--muted)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.ghost{background:none;border-color:transparent;padding:6px 8px;min-height:32px;color:var(--muted)}
+.btn.ghost:hover{color:var(--ink);border-color:var(--line)}
+.btn.danger.armed{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn:disabled{opacity:.5;cursor:default}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.banner{padding:12px 14px;border-radius:var(--r);background:var(--warn-bg);color:var(--ink);border:1px solid var(--line)}
+
+/* Kennzahlen */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.stat{background:var(--surface);padding:14px 16px}
+.stat .k{font:600 13px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font:500 24px/1.2 var(--mono);font-variant-numeric:tabular-nums;margin-top:4px}
+.stat .s{font-size:12px;color:var(--muted)}
+.budget{margin-top:6px;height:8px;background:var(--sunk);border-radius:4px;overflow:hidden}
+.budget i{display:block;height:100%;background:var(--accent)}
+.budget i.over{background:var(--bad)}
+
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
+.bars{display:grid;gap:10px;margin-top:12px}
+.bar{display:grid;grid-template-columns:minmax(90px,38%) 1fr auto;gap:10px;align-items:center;font-size:14px}
+.bar .t{height:10px;background:var(--sunk);border-radius:3px;overflow:hidden}
+.bar .t i{display:block;height:100%;background:var(--blue);border-radius:3px}
+.bar .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Listen */
+.list{display:grid;gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;display:grid;gap:8px}
+.card-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.card-h .ttl{font-weight:600;font-size:16px}
+.meta{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--muted)}
+.chip{display:inline-block;padding:1px 8px;border-radius:10px;background:var(--sunk);color:var(--ink);font-size:12px;font-weight:500}
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600}
+.pill.Bestellt{background:var(--warn-bg);color:var(--warn)}
+.pill.Geliefert{background:var(--sunk);color:var(--blue)}
+.pill.Bezahlt{background:var(--ok-bg);color:var(--ok)}
+.txt{white-space:pre-wrap;overflow-wrap:anywhere}
+.actions{display:flex;gap:4px;flex-wrap:wrap}
+.links{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14px}
+.links a{overflow-wrap:anywhere}
+.day{font:600 14px var(--mono);color:var(--muted);margin:8px 0 -4px;display:flex;gap:10px;align-items:center}
+.day::after{content:"";flex:1;height:1px;background:var(--line)}
+
+.thumbs{display:flex;flex-wrap:wrap;gap:8px}
+.thumb{width:84px;height:84px;border-radius:4px;border:1px solid var(--line);overflow:hidden;background:var(--sunk);display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer;padding:0;text-decoration:none;color:var(--ink)}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb .doc{font:600 12px var(--mono);text-align:center;padding:4px;overflow-wrap:anywhere;font-size:11px}
+.thumb .doc b{display:block;font:700 16px var(--display);color:var(--bad)}
+.thumb .x{position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(0,0,0,.65);color:#fff;cursor:pointer;line-height:22px;padding:0;font-size:14px}
+
+.money{font:500 17px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.filters{display:flex;flex-wrap:wrap;gap:8px}
+.filters select{min-width:0}
+
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+td.r,th.r{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+details summary{cursor:pointer;color:var(--muted);font-size:13px}
+
+/* Räume */
+.rooms{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.room-tile{text-align:left;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:4px}
+.room-tile[aria-current="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.room-tile .n{font:700 20px var(--display);text-transform:uppercase}
+.dims{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.dims div{background:var(--surface);padding:10px 12px}
+.dims .k{font-size:12px;color:var(--muted)}
+.dims .v{font:500 18px var(--mono);font-variant-numeric:tabular-nums}
+.iso{width:100%;max-width:100%;height:300px;display:block;background:var(--sunk);border-radius:var(--r);touch-action:none;cursor:grab}
+.iso-cap{font-size:12px;color:var(--muted);margin-top:6px}
+
+.empty{padding:28px 16px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:var(--r)}
+
+/* Formular-Sheet */
+.overlay{position:fixed;inset:0;background:rgba(10,14,15,.55);z-index:50;display:flex;justify-content:center;align-items:flex-end;padding-top:calc(env(safe-area-inset-top,0px) + 24px)}
+@media (min-width:720px){.overlay{align-items:center;padding:24px}}
+.sheet{background:var(--surface);width:100%;max-width:640px;max-height:100%;overflow:auto;border-radius:12px 12px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px))}
+@media (min-width:720px){.sheet{border-radius:12px;max-height:calc(100vh - 48px)}}
+.sheet h2{margin-bottom:14px}
+form.f{display:grid;gap:14px}
+.fr{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+label.fl{display:grid;gap:4px;font-size:13px;font-weight:500;color:var(--muted)}
+.fl input,.fl select,.fl textarea,.rows input,.filters select{border:1px solid var(--line);background:var(--bg);border-radius:var(--r);padding:8px 10px;width:100%;color:var(--ink);font-size:15px}
+.fl textarea{min-height:90px;resize:vertical}
+fieldset{border:1px solid var(--line);border-radius:var(--r);padding:10px 12px 12px;margin:0;display:grid;gap:8px}
+legend{font:600 14px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:0 4px}
+.rows{display:grid;gap:6px}
+.row{display:grid;gap:6px;align-items:center}
+.row .rm{border:0;background:none;color:var(--muted);cursor:pointer;font-size:18px;width:30px;height:36px}
+.rows .hd{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.form-foot{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;position:sticky;bottom:calc(-18px - env(safe-area-inset-bottom,0px));background:var(--surface);padding:10px 0 4px;border-top:1px solid var(--line)}
+.err{color:var(--bad);font-size:14px}
+.upl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.upl input[type=file]{font-size:13px;max-width:100%}
+
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:60;display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out}
+.lightbox img{max-height:100%;max-width:100%;object-fit:contain}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:var(--r);z-index:70;font-size:14px;max-width:calc(100% - 32px)}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}}}
+</style>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <div>
+        <h1 id="p-name">Bautagebuch EG</h1>
+        <p id="p-sub">Umbau Zweifamilienhaus → Einfamilienhaus · Erdgeschoss</p>
+      </div>
+      <button class="btn ghost small" data-act="edit-meta" id="btn-meta">Projekt &amp; Budget</button>
+    </div>
+    <div class="ruler" aria-hidden="true"></div>
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="uebersicht" id="t-uebersicht">Übersicht</button>
+      <button class="tab" role="tab" data-tab="tagebuch" id="t-tagebuch">Tagebuch<span class="cnt" id="c-tagebuch"></span></button>
+      <button class="tab" role="tab" data-tab="belege" id="t-belege">Belege &amp; Kosten<span class="cnt" id="c-belege"></span></button>
+      <button class="tab" role="tab" data-tab="raeume" id="t-raeume">Räume &amp; Aufmaß<span class="cnt" id="c-raeume"></span></button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div id="status"></div>
+  <section class="view" id="v-uebersicht"></section>
+  <section class="view" id="v-tagebuch" hidden></section>
+  <section class="view" id="v-belege" hidden></section>
+  <section class="view" id="v-raeume" hidden></section>
+</main>
+
+<div class="overlay" id="overlay" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+<div class="lightbox" id="lightbox" hidden><img id="lb-img" alt=""></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+const CATS = ['Material','Werkzeug & Leihgeräte','Handwerker','Entsorgung','Sonstiges'];
+const STATUS = ['Bestellt','Geliefert','Bezahlt'];
+const EUR = new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'});
+const NUM = new Intl.NumberFormat('de-DE',{maximumFractionDigits:2});
+const DATE = new Intl.DateTimeFormat('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'});
+
+const S = {rooms:[],entries:[],costs:[],meta:{},tab:'uebersicht',room:null,filter:{room:'',cat:'',status:''},loaded:{rooms:false,entries:false,costs:false}};
+let db=null, assets=null, downloads=null, canWrite=true;
+
+const $ = (s,r=document)=>r.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today = () => { const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); };
+const num = v => { if(v==null) return null; let s=String(v).trim(); if(!s) return null; if(s.includes(',')) s=s.replace(/\./g,'').replace(',','.'); const n=parseFloat(s); return isFinite(n)?n:null; };
+const fmtN = v => v==null||v==='' ? '' : NUM.format(v);
+const fmtD = d => { if(!d) return ''; const x=new Date(d+'T12:00:00'); return isNaN(x)?d:DATE.format(x); };
+const url = u => { u=String(u||'').trim(); if(!u) return ''; return /^https?:\/\//i.test(u)?u:'https://'+u; };
+const host = u => { try{ return new URL(u).hostname.replace(/^www\./,''); }catch{ return u; } };
+const roomName = id => (S.rooms.find(r=>r.id===id)||{}).name || 'Allgemein / EG';
+const costAmount = c => { const a=num(c.amount); if(a!=null) return a; return (c.items||[]).reduce((s,i)=>s+(num(i.qty)||0)*(num(i.price)||0),0); };
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.hidden=false; clearTimeout(toast.t); toast.t=setTimeout(()=>t.hidden=true,2600); }
+
+/* ---------- Tabs ---------- */
+function setTab(t){
+  S.tab=t;
+  document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected', b.dataset.tab===t ? 'true':'false'));
+  ['uebersicht','tagebuch','belege','raeume'].forEach(v=>$('#v-'+v).hidden = v!==t);
+  try{ localStorage.setItem('bt-tab',t); }catch{}
+}
+(function initialTab(){
+  let t = (location.hash||'').slice(1);
+  if(!['uebersicht','tagebuch','belege','raeume'].includes(t)){ try{ t=localStorage.getItem('bt-tab')||''; }catch{} }
+  setTab(['uebersicht','tagebuch','belege','raeume'].includes(t)?t:'uebersicht');
+})();
+
+/* ---------- Render ---------- */
+function render(){
+  const m=S.meta||{};
+  $('#p-name').textContent = m.name || 'Bautagebuch EG';
+  $('#p-sub').textContent = m.subtitle || 'Umbau Zweifamilienhaus → Einfamilienhaus · Erdgeschoss';
+  $('#c-tagebuch').textContent = S.entries.length||'';
+  $('#c-belege').textContent = S.costs.length||'';
+  $('#c-raeume').textContent = S.rooms.length||'';
+  $('#btn-meta').hidden = !db || !canWrite;
+  renderOverview(); renderDiary(); renderCosts(); renderRooms();
+}
+
+function statTile(k,v,s='',extra=''){ return `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:''}${extra}</div>`; }
+
+function bars(rows){
+  const max=Math.max(...rows.map(r=>r[1]),0);
+  if(!max) return `<p class="muted small">Noch keine Kosten erfasst.</p>`;
+  return `<div class="bars">${rows.filter(r=>r[1]>0).sort((a,b)=>b[1]-a[1]).map(([l,v])=>`<div class="bar"><span class="lbl" title="${esc(l)}">${esc(l)}</span><span class="t"><i style="width:${Math.max(2,v/max*100)}%"></i></span><span class="num small">${EUR.format(v)}</span></div>`).join('')}</div>`;
+}
+
+function renderOverview(){
+  const el=$('#v-uebersicht');
+  const total=S.costs.reduce((s,c)=>s+costAmount(c),0);
+  const open=S.costs.filter(c=>c.status!=='Bezahlt');
+  const openSum=open.reduce((s,c)=>s+costAmount(c),0);
+  const labor=S.costs.reduce((s,c)=>s+(num(c.labor)||0),0);
+  const hours=S.entries.reduce((s,e)=>s+(num(e.hours)||0),0);
+  const budget=num(S.meta.budget);
+  let budgetTile;
+  if(budget){
+    const pct=total/budget*100;
+    budgetTile=statTile('Budget', EUR.format(budget-total), `${NUM.format(pct)} % von ${EUR.format(budget)} verbraucht`, `<div class="budget"><i class="${pct>100?'over':''}" style="width:${Math.min(100,pct)}%"></i></div>`);
+  } else budgetTile=statTile('Budget','–',`<button class="btn ghost small" data-act="edit-meta" style="padding:0;min-height:0">Budget festlegen</button>`);
+  const byCat=CATS.map(c=>[c,S.costs.filter(x=>(x.category||'Sonstiges')===c).reduce((s,x)=>s+costAmount(x),0)]);
+  const roomIds=[...S.rooms.map(r=>r.id),''];
+  const byRoom=roomIds.map(id=>[roomName(id),S.costs.filter(x=>(x.roomId||'')===id).reduce((s,x)=>s+costAmount(x),0)]);
+  const recent=[...S.entries].sort(sortEntries).slice(0,4);
+  el.innerHTML = `
+    <div class="stats">
+      ${statTile('Ausgaben gesamt', EUR.format(total), `${S.costs.length} Belege`)}
+      ${budgetTile}
+      ${statTile('Offen / unbezahlt', EUR.format(openSum), `${open.length} Bestellung${open.length===1?'':'en'} nicht bezahlt`)}
+      ${statTile('Eigenleistung', NUM.format(hours)+' h', `aus ${S.entries.length} Tagebucheinträgen`)}
+      ${statTile('Lohnanteil § 35a', EUR.format(labor), 'Handwerkerrechnungen, steuerlich absetzbar')}
+    </div>
+    <div class="grid2">
+      <div class="panel"><h3>Nach Kategorie</h3>${bars(byCat)}</div>
+      <div class="panel"><h3>Nach Raum</h3>${bars(byRoom)}</div>
+    </div>
+    <div class="grid2">
+      <div class="panel" style="display:grid;gap:10px">
+        <div class="head-row"><h3>Zuletzt im Tagebuch</h3>${canWrite&&db?`<button class="btn" data-act="new-entry">+ Eintrag</button>`:''}</div>
+        ${recent.length?recent.map(e=>`<div><div class="meta"><span class="mono">${esc(fmtD(e.date))}</span><span class="chip">${esc(roomName(e.roomId))}</span>${num(e.hours)?`<span class="mono">${fmtN(num(e.hours))} h</span>`:''}</div><div style="font-weight:600">${esc(e.title)}</div></div>`).join(''):`<p class="muted small">Noch keine Einträge.</p>`}
+      </div>
+      <div class="panel" style="display:grid;gap:10px">
+        <div class="head-row"><h3>Offene Bestellungen</h3>${canWrite&&db?`<button class="btn" data-act="new-cost">+ Beleg</button>`:''}</div>
+        ${open.length?`<div class="tbl-wrap"><table><tbody>${open.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,6).map(c=>`<tr><td class="mono small">${esc(c.date||'')}</td><td>${esc(c.title||c.vendor||'Beleg')}<div class="muted small">${esc(c.vendor||'')}</div></td><td><span class="pill ${esc(c.status)}">${esc(c.status)}</span></td><td class="r">${EUR.format(costAmount(c))}</td></tr>`).join('')}</tbody></table></div>`:`<p class="muted small">Nichts offen.</p>`}
+      </div>
+    </div>`;
+}
+
+function sortEntries(a,b){ return (b.date||'').localeCompare(a.date||'') || (b.createdAt||0)-(a.createdAt||0); }
+
+function fileThumbs(files,removable=false){
+  if(!files||!files.length) return '';
+  return `<div class="thumbs">${files.map((f,i)=>{
+    const src='/_blob/'+f.id;
+    const isImg=(f.type||'').startsWith('image/');
+    const inner=isImg?`<img src="${src}" alt="${esc(f.name)}" loading="lazy">`:`<span class="doc"><b>${esc((f.name||'').split('.').pop().toUpperCase()||'DATEI')}</b>${esc((f.name||'').slice(0,28))}</span>`;
+    const x=removable?`<button type="button" class="x" data-act="rm-file" data-i="${i}" aria-label="Entfernen">×</button>`:'';
+    return isImg?`<button type="button" class="thumb" data-act="lightbox" data-src="${src}" title="${esc(f.name)}">${inner}${x}</button>`
+                :`<a class="thumb" href="${src}" target="_blank" rel="noopener" title="${esc(f.name)}">${inner}${x}</a>`;
+  }).join('')}</div>`;
+}
+function linkList(links){
+  const l=(links||[]).filter(x=>x&&x.url);
+  if(!l.length) return '';
+  return `<div class="links">${l.map(x=>`<a href="${esc(url(x.url))}" target="_blank" rel="noopener">↗ ${esc(x.label||host(url(x.url)))}</a>`).join('')}</div>`;
+}
+function rowActions(kind,id){
+  if(!db||!canWrite) return '';
+  return `<div class="actions"><button class="btn ghost small" data-act="edit-${kind}" data-id="${esc(id)}">Bearbeiten</button><button class="btn ghost small danger" data-act="del-${kind}" data-id="${esc(id)}">Löschen</button></div>`;
+}
+
+function renderDiary(){
+  const el=$('#v-tagebuch');
+  const list=[...S.entries].sort(sortEntries);
+  let html=`<div class="head-row"><h2>Tagebuch</h2>${db&&canWrite?`<button class="btn pri" data-act="new-entry">+ Neuer Eintrag</button>`:''}</div>`;
+  if(!list.length){ el.innerHTML=html+`<div class="empty">Noch keine Einträge. Halte fest, was du an einem Tag gemacht hast, mit Fotos, Stunden und Links.</div>`; return; }
+  let last=null, out='';
+  for(const e of list){
+    if(e.date!==last){ out+=`<div class="day">${esc(fmtD(e.date))}</div>`; last=e.date; }
+    out+=`<article class="card">
+      <div class="card-h"><div><div class="ttl">${esc(e.title||'Ohne Titel')}</div><div class="meta"><span class="chip">${esc(roomName(e.roomId))}</span>${num(e.hours)?`<span class="mono">${fmtN(num(e.hours))} h</span>`:''}${e.material?`<span>Material: ${esc(e.material)}</span>`:''}</div></div>${rowActions('entry',e.id)}</div>
+      ${e.text?`<div class="txt">${esc(e.text)}</div>`:''}
+      ${fileThumbs(e.files)}${linkList(e.links)}
+    </article>`;
+  }
+  el.innerHTML=html+`<div class="list">${out}</div>`;
+}
+
+function renderCosts(){
+  const el=$('#v-belege');
+  const f=S.filter;
+  const list=S.costs.filter(c=>(!f.room||(c.roomId||'_')===f.room)&&(!f.cat||(c.category||'Sonstiges')===f.cat)&&(!f.status||c.status===f.status))
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.createdAt||0)-(a.createdAt||0));
+  const sum=list.reduce((s,c)=>s+costAmount(c),0);
+  const opt=(v,l,sel)=>`<option value="${esc(v)}"${v===sel?' selected':''}>${esc(l)}</option>`;
+  let html=`<div class="head-row"><h2>Belege &amp; Kosten</h2><div class="actions">${downloads?`<button class="btn" data-act="export">CSV exportieren</button>`:''}${db&&canWrite?`<button class="btn pri" data-act="new-cost">+ Beleg / Bestellung</button>`:''}</div></div>
+  <div class="head-row"><div class="filters">
+    <select id="f-room" aria-label="Raum">${opt('','Alle Räume',f.room)}${S.rooms.map(r=>opt(r.id,r.name,f.room)).join('')}${opt('_','Allgemein / EG',f.room)}</select>
+    <select id="f-cat" aria-label="Kategorie">${opt('','Alle Kategorien',f.cat)}${CATS.map(c=>opt(c,c,f.cat)).join('')}</select>
+    <select id="f-status" aria-label="Status">${opt('','Jeder Status',f.status)}${STATUS.map(c=>opt(c,c,f.status)).join('')}</select>
+  </div><div class="money">Σ ${EUR.format(sum)}</div></div>`;
+  if(!list.length){ el.innerHTML=html+`<div class="empty">${S.costs.length?'Keine Belege für diesen Filter.':'Noch keine Belege. Lade Kassenbons, Rechnungen und Bestellbestätigungen als Foto oder PDF hoch.'}</div>`; return; }
+  html+=`<div class="list">${list.map(c=>{
+    const items=(c.items||[]).filter(i=>i.name);
+    return `<article class="card">
+      <div class="card-h">
+        <div style="min-width:0;flex:1"><div class="ttl">${esc(c.title||c.vendor||'Beleg')}</div>
+          <div class="meta"><span class="mono">${esc(fmtD(c.date))}</span>${c.vendor&&c.title?`<span>${esc(c.vendor)}</span>`:''}<span class="chip">${esc(roomName(c.roomId))}</span><span>${esc(c.category||'Sonstiges')}</span><span class="pill ${esc(c.status||'')}">${esc(c.status||'')}</span>${num(c.labor)?`<span>Lohnanteil ${EUR.format(num(c.labor))}</span>`:''}</div></div>
+        <div style="text-align:right"><div class="money">${EUR.format(costAmount(c))}</div>${rowActions('cost',c.id)}</div>
+      </div>
+      ${c.note?`<div class="txt small">${esc(c.note)}</div>`:''}
+      ${items.length?`<details><summary>${items.length} Position${items.length===1?'':'en'}</summary><div class="tbl-wrap"><table><thead><tr><th>Artikel</th><th class="r">Menge</th><th class="r">Einzel</th><th class="r">Summe</th></tr></thead><tbody>${items.map(i=>`<tr><td>${esc(i.name)}</td><td class="r">${fmtN(num(i.qty))} ${esc(i.unit||'')}</td><td class="r">${num(i.price)!=null?EUR.format(num(i.price)):''}</td><td class="r">${EUR.format((num(i.qty)||0)*(num(i.price)||0))}</td></tr>`).join('')}</tbody></table></div></details>`:''}
+      ${fileThumbs(c.files)}${c.link?linkList([{label:'Bestellung / Shop',url:c.link}]):''}
+    </article>`;}).join('')}</div>`;
+  el.innerHTML=html;
+}
+
+function roomCalc(r){
+  const L=num(r.L),W=num(r.W),H=num(r.H);
+  if(!L||!W) return null;
+  const A=L*W, U=2*(L+W);
+  const op=(r.openings||[]).reduce((s,o)=>s+(num(o.w)||0)*(num(o.h)||0)*(num(o.n)||1),0);
+  const wall=H?U*H:null;
+  return {L,W,H,A,U,op,wall,net:wall!=null?wall-op:null,V:H?A*H:null};
+}
+
+function renderRooms(){
+  const el=$('#v-raeume');
+  let html=`<div class="head-row"><h2>Räume &amp; Aufmaß</h2>${db&&canWrite?`<button class="btn pri" data-act="new-room">+ Raum</button>`:''}</div>`;
+  if(!S.rooms.length){ el.innerHTML=html+`<div class="empty">Noch keine Räume angelegt.</div>`; return; }
+  if(!S.room||!S.rooms.find(r=>r.id===S.room)) S.room=S.rooms[0].id;
+  html+=`<div class="rooms">${S.rooms.map(r=>{
+    const c=roomCalc(r); const cost=S.costs.filter(x=>x.roomId===r.id).reduce((s,x)=>s+costAmount(x),0);
+    return `<button class="room-tile" data-act="pick-room" data-id="${esc(r.id)}" aria-current="${r.id===S.room}"><span class="n">${esc(r.name)}</span><span class="mono small">${c?NUM.format(c.A)+' m²':'Maße fehlen'}</span><span class="small muted">${EUR.format(cost)} · ${S.entries.filter(e=>e.roomId===r.id).length} Einträge</span></button>`;}).join('')}</div>`;
+  const r=S.rooms.find(x=>x.id===S.room); const c=roomCalc(r);
+  const roomCosts=S.costs.filter(x=>x.roomId===r.id);
+  const mat={};
+  roomCosts.forEach(k=>(k.items||[]).forEach(i=>{ if(!i.name) return; const key=i.name.trim().toLowerCase()+'|'+(i.unit||''); const m=mat[key]||(mat[key]={name:i.name.trim(),unit:i.unit||'',qty:0,sum:0}); m.qty+=num(i.qty)||0; m.sum+=(num(i.qty)||0)*(num(i.price)||0); }));
+  const mats=Object.values(mat).sort((a,b)=>b.sum-a.sum);
+  const pos=(r.positions||[]).filter(p=>p.text);
+  html+=`<div class="panel" style="display:grid;gap:16px">
+    <div class="head-row"><h2>${esc(r.name)}</h2>${rowActions('room',r.id)}</div>
+    ${c?`<div class="dims">
+      <div><div class="k">Länge × Breite × Höhe</div><div class="v">${fmtN(c.L)} × ${fmtN(c.W)}${c.H?' × '+fmtN(c.H):''} m</div></div>
+      <div><div class="k">Bodenfläche / Decke</div><div class="v">${fmtN(c.A)} m²</div></div>
+      <div><div class="k">Umfang (Sockelleiste)</div><div class="v">${fmtN(c.U)} m</div></div>
+      <div><div class="k">Wandfläche brutto</div><div class="v">${c.wall!=null?fmtN(c.wall)+' m²':'–'}</div></div>
+      <div><div class="k">Öffnungen abzgl.</div><div class="v">${fmtN(c.op)} m²</div></div>
+      <div><div class="k">Wandfläche netto</div><div class="v">${c.net!=null?fmtN(c.net)+' m²':'–'}</div></div>
+      <div><div class="k">Raumvolumen</div><div class="v">${c.V!=null?fmtN(c.V)+' m³':'–'}</div></div>
+      <div><div class="k">Kosten Raum</div><div class="v">${EUR.format(roomCosts.reduce((s,x)=>s+costAmount(x),0))}</div></div>
+    </div>`:`<div class="empty">Trage Länge, Breite und Höhe ein, dann rechnet das Aufmaß Flächen, Umfang und Volumen aus.${db&&canWrite?` <button class="btn" data-act="edit-room" data-id="${esc(r.id)}">Maße eintragen</button>`:''}</div>`}
+    <div class="grid2">
+      <div>
+        <h3>3D-Ansicht</h3>
+        ${c&&c.H?`<canvas class="iso" id="iso" aria-label="3D-Modell ${esc(r.name)}"></canvas><div class="iso-cap">Ziehen zum Drehen · Modell aus dem Aufmaß, Öffnungen als Flächen an der Wand</div>`:`<p class="muted small">Sobald L, B und H eingetragen sind, erscheint hier ein drehbares Raummodell.</p>`}
+        ${linkList([r.model?{label:'Fusion-Modell öffnen',url:r.model}:null,...(r.links||[])].filter(Boolean))}
+      </div>
+      <div style="display:grid;gap:14px;align-content:start">
+        <div><h3>Aufmaß-Positionen</h3>${pos.length?`<div class="tbl-wrap"><table><tbody>${pos.map(p=>`<tr><td>${esc(p.text)}</td><td class="r">${fmtN(num(p.qty))} ${esc(p.unit||'')}</td></tr>`).join('')}</tbody></table></div>`:`<p class="muted small">Z. B. „Schalterdosen gestemmt – 12 Stk“ oder „Schlitze – 18 lfm“.</p>`}</div>
+        ${(r.openings||[]).length?`<div><h3>Öffnungen</h3><div class="tbl-wrap"><table><tbody>${r.openings.map(o=>`<tr><td>${esc(o.name||'Öffnung')}</td><td class="r">${num(o.n)||1} × ${fmtN(num(o.w))} × ${fmtN(num(o.h))} m</td></tr>`).join('')}</tbody></table></div></div>`:''}
+        <div><h3>Materialverbrauch</h3>${mats.length?`<div class="tbl-wrap"><table><thead><tr><th>Material</th><th class="r">Menge</th><th class="r">Kosten</th></tr></thead><tbody>${mats.map(m=>`<tr><td>${esc(m.name)}</td><td class="r">${fmtN(m.qty)} ${esc(m.unit)}</td><td class="r">${EUR.format(m.sum)}</td></tr>`).join('')}</tbody></table></div>`:`<p class="muted small">Positionen aus Belegen, die diesem Raum zugeordnet sind, landen hier.</p>`}</div>
+        ${r.notes?`<div><h3>Notizen</h3><div class="txt">${esc(r.notes)}</div></div>`:''}
+      </div>
+    </div>
+  </div>`;
+  el.innerHTML=html;
+  if(c&&c.H) initIso($('#iso'),r,c);
+}
+
+/* ---------- 3D-Raum ---------- */
+const iso={yaw:-0.7,pitch:0.55};
+function initIso(cv,r,c){
+  const draw=()=>drawIso(cv,r,c);
+  let drag=null;
+  cv.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY,yaw:iso.yaw,pitch:iso.pitch};cv.setPointerCapture(e.pointerId);cv.style.cursor='grabbing';};
+  cv.onpointermove=e=>{ if(!drag) return; iso.yaw=drag.yaw+(e.clientX-drag.x)*0.01; iso.pitch=Math.max(0.1,Math.min(1.35,drag.pitch+(e.clientY-drag.y)*0.006)); draw(); };
+  cv.onpointerup=cv.onpointercancel=()=>{drag=null;cv.style.cursor='grab';};
+  draw();
+  if(!initIso.ro){ initIso.ro=new ResizeObserver(()=>{ const x=$('#iso'); if(x&&x._draw) x._draw(); }); }
+  cv._draw=draw; initIso.ro.observe(cv);
+}
+function drawIso(cv,r,c){
+  const cs=getComputedStyle(document.documentElement);
+  const col=k=>cs.getPropertyValue(k).trim();
+  const dpr=window.devicePixelRatio||1, w=cv.clientWidth, h=cv.clientHeight;
+  if(!w||!h) return;
+  cv.width=w*dpr; cv.height=h*dpr;
+  const g=cv.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+  const {L,W,H}=c, cy=Math.cos(iso.yaw), sy=Math.sin(iso.yaw), cp=Math.cos(iso.pitch), sp=Math.sin(iso.pitch);
+  const P=(x,y,z)=>{ x-=L/2; y-=W/2; z-=H/2; const rx=x*cy-y*sy, ry=x*sy+y*cy; return {x:rx, y:-z*cp+ry*sp, d:ry*cp+z*sp}; };
+  const corners=[]; for(const x of[0,L])for(const y of[0,W])for(const z of[0,H])corners.push(P(x,y,z));
+  const minX=Math.min(...corners.map(p=>p.x)),maxX=Math.max(...corners.map(p=>p.x)),minY=Math.min(...corners.map(p=>p.y)),maxY=Math.max(...corners.map(p=>p.y));
+  const s=Math.min((w-60)/(maxX-minX),(h-50)/(maxY-minY));
+  const T=p=>[w/2+(p.x-(minX+maxX)/2)*s, h/2+(p.y-(minY+maxY)/2)*s];
+  const poly=(pts,fill,stroke,alpha=1)=>{ g.beginPath(); pts.map(p=>T(p)).forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y)); g.closePath(); if(fill){g.globalAlpha=alpha;g.fillStyle=fill;g.fill();g.globalAlpha=1;} if(stroke){g.strokeStyle=stroke;g.lineWidth=1.2;g.stroke();} };
+  const walls=[
+    {pts:[[0,0],[L,0]],n:[0,-1]},{pts:[[L,0],[L,W]],n:[1,0]},{pts:[[L,W],[0,W]],n:[0,1]},{pts:[[0,W],[0,0]],n:[-1,0]}
+  ].map(wl=>{ const [a,b]=wl.pts; const q=[P(a[0],a[1],0),P(b[0],b[1],0),P(b[0],b[1],H),P(a[0],a[1],H)]; return {...wl,q,d:q.reduce((s,p)=>s+p.d,0)/4}; });
+  // Boden
+  poly([P(0,0,0),P(L,0,0),P(L,W,0),P(0,W,0)],col('--accent'),col('--muted'),0.28);
+  // Bodenraster 1 m
+  g.strokeStyle=col('--line'); g.lineWidth=1;
+  for(let x=1;x<L;x++){ const [a,b]=[T(P(x,0,0)),T(P(x,W,0))]; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke(); }
+  for(let y=1;y<W;y++){ const [a,b]=[T(P(0,y,0)),T(P(L,y,0))]; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke(); }
+  // Öffnungen auf den hinteren Wänden verteilen
+  const ops=[]; (r.openings||[]).forEach(o=>{ for(let i=0;i<Math.min(6,num(o.n)||1);i++) ops.push(o); });
+  const back=[...walls].sort((a,b)=>b.d-a.d);
+  walls.sort((a,b)=>b.d-a.d).forEach((wl,wi)=>{
+    const isFar=wi<2;
+    poly(wl.q,col('--surface'),col('--muted'),isFar?0.9:0.12);
+    if(isFar){
+      const [a,b]=wl.pts; const len=Math.hypot(b[0]-a[0],b[1]-a[1]);
+      const mine=ops.filter((_,i)=>i%2===wi);
+      let pos=0.4;
+      mine.forEach(o=>{
+        const ow=num(o.w)||1, oh=Math.min(H-0.05,num(o.h)||1);
+        if(pos+ow>len-0.2) return;
+        const isDoor=/tür|tuer|door/i.test(o.name||'')||oh>H*0.7;
+        const z0=isDoor?0:Math.max(0,Math.min(0.9,H-oh-0.3));
+        const pt=(t,z)=>P(a[0]+(b[0]-a[0])*t/len,a[1]+(b[1]-a[1])*t/len,z);
+        poly([pt(pos,z0),pt(pos+ow,z0),pt(pos+ow,z0+oh),pt(pos,z0+oh)],col('--blue'),col('--blue'),0.25);
+        pos+=ow+0.5;
+      });
+    }
+  });
+  // Kanten + Maße
+  g.fillStyle=col('--ink'); g.font='500 12px "IBM Plex Mono", monospace'; g.textAlign='center'; g.textBaseline='middle';
+  const lab=(p1,p2,txt,off)=>{ const [x1,y1]=T(p1),[x2,y2]=T(p2); g.fillText(txt,(x1+x2)/2+off[0],(y1+y2)/2+off[1]); };
+  const front=walls[walls.length-1], side=walls[walls.length-2];
+  lab(P(front.pts[0][0],front.pts[0][1],0),P(front.pts[1][0],front.pts[1][1],0),NUM.format(Math.hypot(front.pts[1][0]-front.pts[0][0],front.pts[1][1]-front.pts[0][1]))+' m',[0,14]);
+  lab(P(side.pts[0][0],side.pts[0][1],0),P(side.pts[1][0],side.pts[1][1],0),NUM.format(Math.hypot(side.pts[1][0]-side.pts[0][0],side.pts[1][1]-side.pts[0][1]))+' m',[0,14]);
+  const shared=front.pts.find(p=>side.pts.some(q=>q[0]===p[0]&&q[1]===p[1]))||front.pts[0];
+  lab(P(shared[0],shared[1],0),P(shared[0],shared[1],H),NUM.format(H)+' m',[-26,0]);
+}
+
+/* ---------- Formulare ---------- */
+let sheetCtx=null;
+function openSheet(title,body,{onSave,onCancel}={}){
+  $('#sheet').innerHTML=`<h2>${esc(title)}</h2><form class="f" id="sheet-form" novalidate>${body}<div class="err" id="f-err" hidden></div><div class="form-foot"><button type="button" class="btn" data-act="close-sheet">Abbrechen</button><button type="submit" class="btn pri" id="f-save">Speichern</button></div></form>`;
+  sheetCtx={onSave,onCancel};
+  $('#overlay').hidden=false; document.body.style.overflow='hidden';
+  const first=$('#sheet input:not([type=file]),#sheet textarea'); if(first) setTimeout(()=>first.focus(),40);
+}
+function closeSheet(cancelled){
+  if(cancelled&&sheetCtx&&sheetCtx.onCancel) sheetCtx.onCancel();
+  sheetCtx=null; $('#overlay').hidden=true; $('#sheet').innerHTML=''; document.body.style.overflow='';
+}
+const fld=(id,label,val='',{type='text',ph='',mode='',wide=false}={})=>`<label class="fl"${wide?' style="grid-column:1/-1"':''}>${label}<input id="${id}" type="${type}" value="${esc(val)}" placeholder="${esc(ph)}"${mode?` inputmode="${mode}"`:''}></label>`;
+const numF=(id,label,val,ph='')=>fld(id,label,val==null?'':String(val).replace('.',','),{ph,mode:'decimal'});
+const area=(id,label,val='',ph='')=>`<label class="fl" style="grid-column:1/-1">${label}<textarea id="${id}" placeholder="${esc(ph)}">${esc(val)}</textarea></label>`;
+const sel=(id,label,opts,val)=>`<label class="fl">${label}<select id="${id}">${opts.map(([v,l])=>`<option value="${esc(v)}"${v===val?' selected':''}>${esc(l)}</option>`).join('')}</select></label>`;
+const roomOpts=()=>[['','Allgemein / EG'],...S.rooms.map(r=>[r.id,r.name])];
+
+// Dynamische Zeilen
+function rowsField(name,legend,cols,values){
+  const tpl=cols.map(c=>c.w).join(' ')+' 30px';
+  const row=v=>`<div class="row" style="grid-template-columns:${tpl}">${cols.map(c=>`<input data-k="${c.k}" value="${esc(c.num&&v[c.k]!=null?String(v[c.k]).replace('.',','):v[c.k]??'')}" placeholder="${esc(c.label)}" aria-label="${esc(c.label)}"${c.num?' inputmode="decimal"':''}>`).join('')}<button type="button" class="rm" data-act="rm-row" aria-label="Zeile entfernen">×</button></div>`;
+  const list=(values&&values.length?values:[{}]);
+  return `<fieldset><legend>${legend}</legend><div class="rows" data-rows="${name}" data-tpl="${esc(JSON.stringify(cols))}">${list.map(row).join('')}</div><div><button type="button" class="btn ghost small" data-act="add-row" data-rows="${name}">+ Zeile</button></div></fieldset>`;
+}
+function readRows(name){
+  const box=$(`[data-rows="${name}"]`); if(!box) return [];
+  const cols=JSON.parse(box.dataset.tpl);
+  return [...box.querySelectorAll('.row')].map(r=>{ const o={}; cols.forEach(c=>{ const v=r.querySelector(`[data-k="${c.k}"]`).value.trim(); o[c.k]=c.num?num(v):v; }); return o; })
+    .filter(o=>cols.some(c=>o[c.k]!=null&&o[c.k]!==''));
+}
+
+// Datei-Anhänge
+let formFiles=null;
+function filesField(existing,label){
+  formFiles={list:[...(existing||[])],added:[],removed:[]};
+  if(!assets) return `<fieldset><legend>${label}</legend>${fileThumbs(formFiles.list)}<p class="muted small">Hochladen ist in dieser Ansicht nicht möglich (nur mit Bearbeitungsrecht).</p></fieldset>`;
+  return `<fieldset><legend>${label}</legend><div id="ff-thumbs">${fileThumbs(formFiles.list,true)}</div><div class="upl"><input type="file" id="ff-input" multiple accept="image/*,application/pdf"><span class="small muted" id="ff-state"></span></div></fieldset>`;
+}
+async function shrink(file){
+  if(!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type)) return file;
+  try{
+    const bmp=await createImageBitmap(file);
+    const max=2000, k=Math.min(1,max/Math.max(bmp.width,bmp.height));
+    if(k===1&&file.size<2.5e6&&file.type!=='image/heic') return file;
+    const cv=document.createElement('canvas'); cv.width=Math.round(bmp.width*k); cv.height=Math.round(bmp.height*k);
+    cv.getContext('2d').drawImage(bmp,0,0,cv.width,cv.height);
+    const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',0.85));
+    return blob? new File([blob],file.name.replace(/\.\w+$/,'')+'.jpg',{type:'image/jpeg'}) : file;
+  }catch{ return file; }
+}
+async function handleFiles(input){
+  const st=$('#ff-state'); const files=[...input.files]; input.value='';
+  for(let i=0;i<files.length;i++){
+    st.textContent=`Lade hoch ${i+1}/${files.length} …`;
+    try{
+      const f=await shrink(files[i]);
+      const type=f.type|| (/\.pdf$/i.test(f.name)?'application/pdf':'');
+      const res=await assets.upload(f,type?{type}:undefined);
+      const rec={id:res.id,name:f.name,type:res.contentType};
+      formFiles.list.push(rec); formFiles.added.push(res.id);
+      $('#ff-thumbs').innerHTML=fileThumbs(formFiles.list,true);
+    }catch(e){
+      const m={too_large:'Datei zu groß (max. 20 MB).',unsupported_type:'Dateityp nicht unterstützt – bitte Foto (JPG/PNG) oder PDF.',quota_or_state:'Speicherplatz voll.',rate_limited:'Zu viele Uploads auf einmal – kurz warten.'}[e&&e.code];
+      st.textContent=''; toast(m||('Upload fehlgeschlagen: '+(e&&e.message||e)));
+    }
+  }
+  st.textContent='';
+}
+async function finishFiles(saved){
+  if(!formFiles||!assets) return;
+  const drop = saved ? formFiles.removed : formFiles.added;
+  for(const id of drop){ try{ await assets.delete(id); }catch{} }
+  formFiles=null;
+}
+
+async function save(coll,id,data){
+  const ref=id?db.collection(coll).doc(id):db.collection(coll).doc();
+  await ref.set(data);
+}
+
+function entryForm(e={}){
+  const isNew=!e.id;
+  openSheet(isNew?'Neuer Tagebucheintrag':'Eintrag bearbeiten', `
+    <div class="fr">${fld('e-date','Datum',e.date||today(),{type:'date'})}${sel('e-room','Raum',roomOpts(),e.roomId??(S.room||''))}${numF('e-hours','Stunden',e.hours,'z. B. 4,5')}</div>
+    ${fld('e-title','Was wurde gemacht?',e.title,{ph:'z. B. Schalterdosen gestemmt',wide:true})}
+    ${area('e-text','Notizen',e.text,'Details, Probleme, nächste Schritte …')}
+    ${fld('e-mat','Material verbraucht (kurz)',e.material,{ph:'z. B. 12 Hohlwanddosen, 1 Sack Rotband',wide:true})}
+    ${filesField(e.files,'Fotos')}
+    ${rowsField('e-links','Links',[{k:'label',label:'Bezeichnung',w:'1fr'},{k:'url',label:'https://…',w:'1.6fr'}],e.links)}
+  `,{onCancel:()=>finishFiles(false),onSave:async()=>{
+    const title=$('#e-title').value.trim(); if(!title) throw new Error('Bitte kurz beschreiben, was gemacht wurde.');
+    const data={date:$('#e-date').value||today(),roomId:$('#e-room').value,title,text:$('#e-text').value.trim(),hours:num($('#e-hours').value),material:$('#e-mat').value.trim(),
+      files:formFiles?formFiles.list:(e.files||[]),links:readRows('e-links'),createdAt:e.createdAt||Date.now(),updatedAt:Date.now()};
+    await save('entries',e.id,data); await finishFiles(true); toast(isNew?'Eintrag gespeichert':'Eintrag aktualisiert');
+  }});
+}
+
+function costForm(c={}){
+  const isNew=!c.id;
+  openSheet(isNew?'Neuer Beleg / Bestellung':'Beleg bearbeiten', `
+    <div class="fr">${fld('c-date','Datum',c.date||today(),{type:'date'})}${fld('c-vendor','Händler / Firma',c.vendor,{ph:'z. B. Bauhaus, Amazon, Elektro Meier'})}</div>
+    ${fld('c-title','Bezeichnung',c.title,{ph:'z. B. Material Elektro Wohnzimmer',wide:true})}
+    <div class="fr">${sel('c-room','Raum',roomOpts(),c.roomId??(S.room||''))}${sel('c-cat','Kategorie',CATS.map(x=>[x,x]),c.category||'Material')}${sel('c-status','Status',STATUS.map(x=>[x,x]),c.status||'Bezahlt')}</div>
+    <div class="fr">${numF('c-amount','Betrag brutto (€)',c.amount,'leer = Summe der Positionen')}${numF('c-labor','davon Lohnanteil (€)',c.labor,'nur Handwerker, § 35a')}</div>
+    ${rowsField('c-items','Positionen / Material',[{k:'name',label:'Artikel',w:'2fr'},{k:'qty',label:'Menge',w:'.8fr',num:true},{k:'unit',label:'Einh.',w:'.7fr'},{k:'price',label:'€/Einh.',w:'.9fr',num:true}],c.items)}
+    ${filesField(c.files,'Kassenbon, Rechnung, Bestellbestätigung')}
+    ${fld('c-link','Link zur Bestellung',c.link,{ph:'https://…',wide:true,type:'url'})}
+    ${area('c-note','Notiz',c.note,'z. B. Lieferung erwartet am …, Rückgabe bis …')}
+  `,{onCancel:()=>finishFiles(false),onSave:async()=>{
+    const items=readRows('c-items');
+    const data={date:$('#c-date').value||today(),vendor:$('#c-vendor').value.trim(),title:$('#c-title').value.trim(),roomId:$('#c-room').value,category:$('#c-cat').value,status:$('#c-status').value,
+      amount:num($('#c-amount').value),labor:num($('#c-labor').value),items,files:formFiles?formFiles.list:(c.files||[]),link:$('#c-link').value.trim(),note:$('#c-note').value.trim(),createdAt:c.createdAt||Date.now(),updatedAt:Date.now()};
+    if(!data.title&&!data.vendor) throw new Error('Bitte Händler oder Bezeichnung angeben.');
+    if(data.amount==null&&!items.some(i=>i.qty&&i.price)) throw new Error('Bitte einen Betrag eintragen oder Positionen mit Menge und Preis.');
+    await save('costs',c.id,data); await finishFiles(true); toast(isNew?'Beleg gespeichert':'Beleg aktualisiert');
+  }});
+}
+
+function roomForm(r={}){
+  const isNew=!r.id;
+  openSheet(isNew?'Neuer Raum':'Raum & Aufmaß bearbeiten', `
+    <div class="fr">${fld('r-name','Name',r.name,{ph:'z. B. Küche'})}</div>
+    <div class="fr">${numF('r-L','Länge (m)',r.L,'5,20')}${numF('r-W','Breite (m)',r.W,'4,10')}${numF('r-H','Höhe (m)',r.H,'2,50')}</div>
+    ${rowsField('r-open','Öffnungen (werden von der Wandfläche abgezogen)',[{k:'name',label:'Tür / Fenster',w:'1.6fr'},{k:'n',label:'Anz.',w:'.6fr',num:true},{k:'w',label:'Breite m',w:'.9fr',num:true},{k:'h',label:'Höhe m',w:'.9fr',num:true}],r.openings)}
+    ${rowsField('r-pos','Aufmaß-Positionen',[{k:'text',label:'Leistung',w:'2fr'},{k:'qty',label:'Menge',w:'.8fr',num:true},{k:'unit',label:'Einh.',w:'.7fr'}],r.positions)}
+    ${fld('r-model','Link zum 3D-Modell (Fusion-Freigabe)',r.model,{ph:'https://a360.co/…',wide:true,type:'url'})}
+    ${rowsField('r-links','Weitere Links',[{k:'label',label:'Bezeichnung',w:'1fr'},{k:'url',label:'https://…',w:'1.6fr'}],r.links)}
+    ${area('r-notes','Notizen',r.notes,'Planung, Ideen, Farbtöne …')}
+  `,{onSave:async()=>{
+    const name=$('#r-name').value.trim(); if(!name) throw new Error('Bitte einen Namen eingeben.');
+    const data={name,L:num($('#r-L').value),W:num($('#r-W').value),H:num($('#r-H').value),openings:readRows('r-open'),positions:readRows('r-pos'),model:$('#r-model').value.trim(),links:readRows('r-links'),notes:$('#r-notes').value.trim(),order:r.order??Date.now()};
+    const id=r.id||name.toLowerCase().replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+uid().slice(-4);
+    await save('rooms',id,data); S.room=id; toast(isNew?'Raum angelegt':'Raum gespeichert');
+  }});
+}
+
+function metaForm(){
+  const m=S.meta||{};
+  openSheet('Projekt & Budget', `
+    ${fld('m-name','Projektname',m.name||'Bautagebuch EG',{wide:true})}
+    ${fld('m-sub','Untertitel',m.subtitle||'Umbau Zweifamilienhaus → Einfamilienhaus · Erdgeschoss',{wide:true})}
+    <div class="fr">${numF('m-budget','Budget gesamt (€)',m.budget,'z. B. 25000')}</div>
+  `,{onSave:async()=>{
+    await db.doc('meta/projekt').set({name:$('#m-name').value.trim(),subtitle:$('#m-sub').value.trim(),budget:num($('#m-budget').value)});
+    toast('Projekt gespeichert');
+  }});
+}
+
+/* ---------- CSV ---------- */
+async function exportCsv(){
+  const q=v=>{ v=v==null?'':String(v); return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const de=n=>n==null?'':String(Math.round(n*100)/100).replace('.',',');
+  const head=['Datum','Bezeichnung','Händler','Raum','Kategorie','Status','Betrag brutto','Lohnanteil §35a','Positionen','Link','Notiz','Anhänge'];
+  const rows=[...S.costs].sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(c=>[c.date,c.title,c.vendor,roomName(c.roomId),c.category,c.status,de(costAmount(c)),de(num(c.labor)),(c.items||[]).map(i=>`${fmtN(num(i.qty))} ${i.unit||''} ${i.name}`.trim()).join(' | '),c.link,c.note,(c.files||[]).map(f=>f.name).join(', ')]);
+  const csv='﻿'+[head,...rows].map(r=>r.map(q).join(';')).join('\r\n');
+  try{ const r=await downloads.save({filename:`Kosten-${today()}.csv`,data:new Blob([csv],{type:'text/csv'})}); if(r&&r.status==='saved') toast('CSV gespeichert'); }
+  catch(e){ if(e&&e.code!=='cancelled'&&e.code!=='declined') toast('Export nicht möglich'); }
+}
+
+/* ---------- Events ---------- */
+const armed=new Set();
+document.addEventListener('click',async ev=>{
+  const b=ev.target.closest('[data-act],[data-tab]'); if(!b) return;
+  if(b.dataset.tab){ setTab(b.dataset.tab); return; }
+  const a=b.dataset.act, id=b.dataset.id;
+  const find=(arr)=>arr.find(x=>x.id===id);
+  if(a==='new-entry') entryForm();
+  else if(a==='new-cost') costForm();
+  else if(a==='new-room') roomForm();
+  else if(a==='edit-entry') entryForm(find(S.entries));
+  else if(a==='edit-cost') costForm(find(S.costs));
+  else if(a==='edit-room') roomForm(find(S.rooms));
+  else if(a==='edit-meta') metaForm();
+  else if(a==='pick-room'){ S.room=id; renderRooms(); }
+  else if(a==='export') exportCsv();
+  else if(a==='close-sheet') closeSheet(true);
+  else if(a==='lightbox'){ ev.preventDefault(); $('#lb-img').src=b.dataset.src; $('#lightbox').hidden=false; }
+  else if(a==='add-row'){
+    const box=$(`[data-rows="${b.dataset.rows}"]`); const first=box.querySelector('.row');
+    const n=first.cloneNode(true); n.querySelectorAll('input').forEach(i=>i.value=''); box.appendChild(n); n.querySelector('input').focus();
+  }
+  else if(a==='rm-row'){ const box=b.closest('.rows'); const row=b.closest('.row'); if(box.querySelectorAll('.row').length>1) row.remove(); else row.querySelectorAll('input').forEach(i=>i.value=''); }
+  else if(a==='rm-file'){ ev.preventDefault(); ev.stopPropagation(); const i=+b.dataset.i; const f=formFiles.list.splice(i,1)[0]; if(f){ if(formFiles.added.includes(f.id)){ formFiles.added=formFiles.added.filter(x=>x!==f.id); try{await assets.delete(f.id);}catch{} } else formFiles.removed.push(f.id); } $('#ff-thumbs').innerHTML=fileThumbs(formFiles.list,true); }
+  else if(a.startsWith('del-')){
+    const key=a+id;
+    if(!armed.has(key)){ armed.add(key); b.classList.add('armed'); b.textContent='Wirklich löschen?'; setTimeout(()=>{armed.delete(key); if(b.isConnected){b.classList.remove('armed'); b.textContent='Löschen';}},3500); return; }
+    armed.delete(key);
+    const coll={'del-entry':'entries','del-cost':'costs','del-room':'rooms'}[a];
+    const item=find(coll==='entries'?S.entries:coll==='costs'?S.costs:S.rooms);
+    try{
+      await db.collection(coll).doc(id).delete();
+      if(assets&&item&&item.files) for(const f of item.files){ try{ await assets.delete(f.id); }catch{} }
+      toast('Gelöscht');
+    }catch(e){ toast('Löschen fehlgeschlagen'); }
+  }
+});
+document.addEventListener('change',ev=>{
+  const t=ev.target;
+  if(t.id==='ff-input') handleFiles(t);
+  else if(t.id==='f-room'||t.id==='f-cat'||t.id==='f-status'){ S.filter[{"f-room":'room','f-cat':'cat','f-status':'status'}[t.id]]=t.value; renderCosts(); }
+});
+document.addEventListener('submit',async ev=>{
+  if(ev.target.id!=='sheet-form') return;
+  ev.preventDefault();
+  const err=$('#f-err'), btn=$('#f-save'); err.hidden=true; btn.disabled=true; btn.textContent='Speichere …';
+  try{ await sheetCtx.onSave(); closeSheet(false); }
+  catch(e){ err.textContent = e&&e.code==='invalid_argument' ? 'Speichern nicht erlaubt – du hast für diese Seite nur Leserechte.' : e&&e.code==='quota_exceeded' ? 'Die Datenbank ist voll. Bitte alte Einträge löschen.' : (e&&e.message)||'Speichern fehlgeschlagen.'; err.hidden=false; btn.disabled=false; btn.textContent='Speichern'; }
+});
+$('#overlay').addEventListener('click',e=>{ if(e.target.id==='overlay') closeSheet(true); });
+$('#lightbox').addEventListener('click',()=>{ $('#lightbox').hidden=true; $('#lb-img').src=''; });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(!$('#lightbox').hidden) $('#lightbox').click(); else if(!$('#overlay').hidden) closeSheet(true); } });
+window.addEventListener('hashchange',()=>{ const t=location.hash.slice(1); if(['uebersicht','tagebuch','belege','raeume'].includes(t)) setTab(t); });
+
+/* ---------- Start ---------- */
+async function start(){
+  render();
+  const C=window.claude;
+  if(!C||!C.use){ $('#status').innerHTML='<div class="banner">Speichern ist nur in der veröffentlichten Seite auf claude.ai möglich.</div>'; return; }
+  [db,assets,downloads]=await Promise.all([C.use('db'),C.use('assets'),C.use('downloads')]);
+  const user=await C.use('user');
+  if(user&&user.can){ try{ const w=await user.can('data.write'); if(w===false) canWrite=false; }catch{} }
+  if(!db){ $('#status').innerHTML='<div class="banner">Die Daten können in dieser Ansicht nicht geladen werden. Öffne die Seite angemeldet auf claude.ai.</div>'; render(); return; }
+  const fail=e=>{ if(e&&e.code==='revoked') $('#status').innerHTML='<div class="banner">Zugriff auf die Daten wurde beendet.</div>'; };
+  const sub=(coll,key,sort)=>db.collection(coll).onSnapshot(s=>{ S[key]=s.docs.map(d=>({id:d.id,...d.data()})); if(sort) S[key].sort(sort); S.loaded[key]=true; render(); },fail);
+  sub('rooms','rooms',(a,b)=>(a.order||0)-(b.order||0));
+  sub('entries','entries');
+  sub('costs','costs');
+  db.doc('meta/projekt').onSnapshot(s=>{ S.meta=s.exists?s.data():{}; render(); },fail);
+}
+start();
+})();
+</script>
